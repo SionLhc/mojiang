@@ -1,0 +1,19 @@
+{
+    "name": "mojiang",
+    "version": "0.1.0",
+    "private": true,
+    "description": "墨匠 —— 本地运行的网文创作工作台",
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "dev": "npm run dev -w @mojiang/desktop",
+        "build": "npm run build -w @mojiang/desktop",
+        "build:win": "npm run build:win -w @mojiang/desktop",
+        "typecheck": "npm run typecheck -w @mojiang/core && npm run typecheck -w @mojiang/llm && npm run typecheck -w @mojiang/desktop"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "name": "@mojiang/llm",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "墨匠模型抽象层：统一接口 + OpenAI 兼容 / Anthropic / Ollama 实现",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "scripts": {
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "devDependencies": {
+        "typescript": "^5.5.4"
+    }
+}

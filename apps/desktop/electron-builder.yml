@@ -1,0 +1,62 @@
+appId: com.mojiang.desktop
+productName: 墨匠
+copyright: Copyright © 2026 MoJiang
+
+# npm workspaces 把 electron 提升到了仓库根目录，这里显式指过去，
+# 免得 electron-builder 在 apps/desktop/node_modules 里找不到而去重新下载
+electronVersion: 32.3.3
+electronDist: ../../node_modules/electron/dist
+
+directories:
+    output: ../../release
+    buildResources: build
+
+files:
+    - out/**/*
+    - package.json
+
+asar: true
+
+# 图标单独带一份进包，供运行时设置窗口和任务栏图标
+extraResources:
+    - from: build/icon-256.png
+      to: icon.png
+
+win:
+    target:
+        - target: nsis
+          arch:
+              - x64
+    artifactName: ${productName}-${version}-${arch}.${ext}
+    icon: build/icon.ico
+    # 不做代码签名、不改 exe 元数据。
+    # 原因：winCodeSign 缓存里带 macOS 的符号链接，普通用户权限解压会失败，
+    # 而 electron-builder 每次构建的缓存 hash 都不同，没法预先手动解压。
+    # 代价是 exe 文件本身的图标还是 Electron 默认；
+    # 窗口和任务栏图标由 extraResources 里的 icon.png 负责，视觉上不受影响。
+    # 想改 exe 图标：开 Windows 开发者模式或用管理员权限打包，然后把这一行改成 true。
+    signAndEditExecutable: false
+
+nsis:
+    installerIcon: build/icon.ico
+    uninstallerIcon: build/icon.ico
+    oneClick: false
+    perMachine: false
+    allowToChangeInstallationDirectory: true
+    createDesktopShortcut: true
+    createStartMenuShortcut: true
+    shortcutName: 墨匠
+    # 书稿存在「文档/墨匠」，不在 AppData，所以卸载默认不会碰数据
+    deleteAppDataOnUninstall: false
+    runAfterFinish: true
+
+linux:
+    target:
+        - AppImage
+        - deb
+    category: Office
+
+mac:
+    target:
+        - dmg
+    category: public.app-category.productivity
