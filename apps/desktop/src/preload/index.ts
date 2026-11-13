@@ -104,6 +104,10 @@ const api: MoJiangApi = {
     note: {
         quick: (text: string) => ipcRenderer.invoke('note:quick', text),
     },
+    plot: {
+        read: (bookId: string) => ipcRenderer.invoke('plot:read', bookId),
+        write: (bookId: string, graph: unknown) => ipcRenderer.invoke('plot:write', bookId, graph),
+    },
     ui: {
         setZoom: (factor: number) => {
             // 夹到合理区间，防止误传把界面缩成一条缝

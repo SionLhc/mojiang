@@ -3,6 +3,7 @@ import { getProjectFeatures } from '@mojiang/core';
 import EditorPane from '@/components/EditorPane';
 import ExportDialog from '@/components/ExportDialog';
 import OutlineDialog from '@/components/OutlineDialog';
+import PlotView from '@/components/PlotView';
 import QuickNoteDialog from '@/components/QuickNoteDialog';
 import RightPanel from '@/components/RightPanel';
 import SearchDialog from '@/components/SearchDialog';
@@ -25,6 +26,9 @@ export default function Workspace() {
     const save = useAppStore((state) => state.save);
     const check = useAppStore((state) => state.check);
     const chapterId = useAppStore((state) => state.chapterId);
+
+    const activeView = useAppStore((state) => state.activeView);
+    const isPlot = activeView === 'plot';
 
     const searchOpen = useAppStore((state) => state.searchOpen);
     const quickNoteOpen = useAppStore((state) => state.quickNoteOpen);
@@ -99,17 +103,24 @@ export default function Workspace() {
                     onOpenExport={() => setExportOpen(true)}
                 />
             )}
-            <EditorPane
-                focusMode={focusMode}
-                onToggleFocus={() => {
-                    // 进专注模式必须回到正文，否则"专注"的是账本表格
-                    if (!focusMode) {
-                        useAppStore.getState().setActiveView('chapter');
-                    }
-                    setFocusMode((value) => !value);
-                }}
-            />
-            {!focusMode && <RightPanel />}
+            {isPlot ? (
+                // 画布要横向空间，这里不渲染右栏
+                <PlotView />
+            ) : (
+                <>
+                    <EditorPane
+                        focusMode={focusMode}
+                        onToggleFocus={() => {
+                            // 进专注模式必须回到正文，否则"专注"的是账本表格
+                            if (!focusMode) {
+                                useAppStore.getState().setActiveView('chapter');
+                            }
+                            setFocusMode((value) => !value);
+                        }}
+                    />
+                    {!focusMode && <RightPanel />}
+                </>
+            )}
 
             <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} />
             <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />

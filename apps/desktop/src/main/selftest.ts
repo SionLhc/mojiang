@@ -17,6 +17,9 @@ import {
     compareVoices,
     composeSystemPrompt,
     computeBaseline,
+    createPlotNode,
+    parsePlotDiagnosis,
+    serializePlotForPrompt,
     computeTextMetrics,
     createCharacterCard,
     createForeshadow,
@@ -113,6 +116,8 @@ export interface SelfTestResult {
     markdownOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
+    /** 剧情图的序列化与 AI 输出校验是否正常 */
+    plotOk: boolean;
 }
 
 /** 开写包往返测试的结果 */
@@ -385,6 +390,29 @@ export function runSelfTest(): SelfTestResult {
         mergedPrompt.indexOf('不要用形容词堆砌') > basePrompt.length &&
         blankPrompt === basePrompt;
 
+    // 剧情画布：序列化要带节点 id，AI 编造的 id 必须被丢弃
+    const plotGraph = {
+        nodes: [
+            { ...createPlotNode('setup', 0, 0, 'n1'), title: '开端', summary: '主角登场' },
+            { ...createPlotNode('climax', 300, 0, 'n2'), title: '高潮', summary: '摊牌' },
+        ],
+        edges: [{ id: 'e1', source: 'n1', target: 'n2', kind: 'cause' as const, label: '因果推进' }],
+        updatedAt: new Date().toISOString(),
+    };
+    const plotPrompt = serializePlotForPrompt(plotGraph);
+    const diagnosis = parsePlotDiagnosis(
+        '{"structureScore":70,"findings":[{"kind":"pacing","severity":"warn","nodeIds":["n1","n99"],"message":"节奏太快","suggestion":"中间加一场"}]}',
+        ['n1', 'n2'],
+    );
+    const plotOk =
+        plotPrompt.includes('[n1]') &&
+        plotPrompt.includes('n1 → n2') &&
+        diagnosis !== null &&
+        diagnosis.structureScore === 70 &&
+        // n99 不存在，必须被剔除，只留下 n1
+        diagnosis.findings[0]?.nodeIds.length === 1 &&
+        diagnosis.findings[0]?.nodeIds[0] === 'n1';
+
     return {
         charCount: metrics.charCount,
         lexiconScore: lexicon.score,
@@ -425,5 +453,6 @@ export function runSelfTest(): SelfTestResult {
         workspaceOk,
         markdownOk,
         promptOk,
+        plotOk,
     };
 }

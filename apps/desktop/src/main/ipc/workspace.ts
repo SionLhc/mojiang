@@ -7,6 +7,7 @@ import { ipcMain } from 'electron';
 import { createFolder, listTree, setDocumentTags } from '../services/content';
 import { logError } from '../services/logger';
 import { assertBookId } from '../services/paths';
+import { readPlot, writePlot } from '../services/plot';
 import { createQuickNote } from '../services/quick-note';
 import { searchAll } from '../services/search';
 import type { ChapterSection } from '../../shared/types';
@@ -92,6 +93,25 @@ export function registerWorkspaceIpc(): void {
             return await searchAll(typeof query === 'string' ? query : '');
         } catch (error) {
             throw wrapError('搜索', error);
+        }
+    });
+
+    ipcMain.handle('plot:read', async (_event, bookId: string) => {
+        try {
+            return await readPlot(assertBookId(bookId));
+        } catch (error) {
+            throw wrapError('读取剧情图', error);
+        }
+    });
+
+    ipcMain.handle('plot:write', async (_event, bookId: string, graph: unknown) => {
+        try {
+            if (typeof graph !== 'object' || graph === null) {
+                throw new Error('剧情图数据非法');
+            }
+            await writePlot(assertBookId(bookId), graph as never);
+        } catch (error) {
+            throw wrapError('保存剧情图', error);
         }
     });
 

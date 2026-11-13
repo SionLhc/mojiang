@@ -7,6 +7,7 @@ import LedgerView from '@/components/LedgerView';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor';
 import MarketView from '@/components/MarketView';
 import PackageView from '@/components/PackageView';
+import PlotView from '@/components/PlotView';
 import VersionDialog from '@/components/VersionDialog';
 import { formatCharCount } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
@@ -145,6 +146,9 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     }
     if (activeView === 'market') {
         return <MarketView />;
+    }
+    if (activeView === 'plot') {
+        return <PlotView />;
     }
 
     if (!chapterId) {

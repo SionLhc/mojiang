@@ -36,5 +36,8 @@
         "typescript": "^5.5.4",
         "vite": "^5.4.10",
         "zustand": "^4.5.5"
+    },
+    "dependencies": {
+        "@xyflow/react": "^12.12.1"
     }
 }

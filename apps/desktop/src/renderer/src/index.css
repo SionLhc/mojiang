@@ -340,6 +340,102 @@ body {
     font-style: italic;
 }
 
+/* ---------- 剧情画布 ---------- */
+
+.plot-node {
+    width: 240px;
+    border-radius: 10px;
+    border: 1px solid rgb(var(--ink-750));
+    border-left-width: 3px;
+    padding: 8px 10px;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+    transition: box-shadow 140ms ease;
+    animation: plot-node-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.plot-node.is-selected {
+    box-shadow: 0 0 0 2px rgb(var(--jade-500));
+}
+
+/* 被 AI 标记问题的节点呼吸提示 */
+.plot-node.has-warn {
+    animation: plot-node-pulse 2s ease-in-out infinite;
+}
+
+.plot-node.has-error {
+    animation: plot-node-pulse-error 2s ease-in-out infinite;
+}
+
+@keyframes plot-node-in {
+    from {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes plot-node-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 2px rgb(196 118 31 / 0.25);
+    }
+    50% {
+        box-shadow: 0 0 0 3px rgb(196 118 31 / 0.6);
+    }
+}
+
+@keyframes plot-node-pulse-error {
+    0%,
+    100% {
+        box-shadow: 0 0 0 2px rgb(191 58 44 / 0.25);
+    }
+    50% {
+        box-shadow: 0 0 0 3px rgb(191 58 44 / 0.6);
+    }
+}
+
+.plot-handle {
+    width: 8px;
+    height: 8px;
+    border: none;
+    background: rgb(var(--ink-600));
+}
+
+.plot-handle:hover {
+    background: rgb(var(--jade-500));
+}
+
+/* React Flow 默认样式是白底，这里改成纸感 */
+.react-flow__controls {
+    box-shadow: none;
+    border: 1px solid rgb(var(--ink-800));
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.react-flow__controls-button {
+    background: rgb(var(--ink-900));
+    border-bottom-color: rgb(var(--ink-800));
+    color: rgb(var(--ink-300));
+    fill: rgb(var(--ink-300));
+}
+
+.react-flow__controls-button:hover {
+    background: rgb(var(--ink-800));
+}
+
+.react-flow__edge-text {
+    fill: rgb(var(--ink-400));
+    font-size: 12px;
+}
+
+.react-flow__edge-textbg {
+    fill: rgb(var(--ink-950));
+}
+
 @layer components {
     .panel {
         @apply bg-ink-900 border border-ink-750 rounded-lg;

@@ -17,8 +17,9 @@ interface SidebarProps {
 const TOOL_VIEWS: Array<{
     key: WorkspaceView;
     label: string;
-    feature: 'ledger' | 'foreshadow' | 'characters' | 'golden3' | 'writingPackage' | 'market';
+    feature: 'ledger' | 'foreshadow' | 'characters' | 'golden3' | 'writingPackage' | 'market' | 'plot';
 }> = [
+    { key: 'plot', label: '剧情编排', feature: 'plot' },
     { key: 'ledger', label: '账本', feature: 'ledger' },
     { key: 'foreshadow', label: '伏笔', feature: 'foreshadow' },
     { key: 'characters', label: '人设', feature: 'characters' },

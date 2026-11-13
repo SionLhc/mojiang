@@ -10,6 +10,7 @@ export * from './text/diff';
 export * from './text/frontmatter';
 export * from './text/markdown';
 export * from './prompt';
+export * from './plot';
 export * from './project';
 export * from './lexicon/word-lists';
 export * from './lexicon/rules';

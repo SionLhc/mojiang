@@ -199,6 +199,12 @@ export interface MoJiangApi {
         /** 快速记录，落在收件箱 */
         quick(text: string): Promise<QuickNoteResult>;
     };
+    plot: {
+        /** 读剧情图，没有返回空图 */
+        read(bookId: string): Promise<import('@mojiang/core').PlotGraph>;
+        /** 保存剧情图 */
+        write(bookId: string, graph: import('@mojiang/core').PlotGraph): Promise<void>;
+    };
     ui: {
         /** 设置界面缩放，超出 0.8-1.6 会被夹住 */
         setZoom(factor: number): void;

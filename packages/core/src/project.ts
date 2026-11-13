@@ -48,6 +48,8 @@ export interface ProjectFeature {
     outline8: boolean;
     /** 市场调研 */
     market: boolean;
+    /** 剧情编排画布 */
+    plot: boolean;
     /** 内容根目录的物理名字 */
     contentDir: string;
     /** 界面上一级内容的叫法，如"正文"/"文档" */
@@ -70,6 +72,7 @@ const NOVEL_FEATURE: ProjectFeature = {
     writingPackage: true,
     outline8: true,
     market: true,
+    plot: true,
     contentDir: '正文',
     contentLabel: '正文',
     createLabel: '新建章节',
@@ -87,6 +90,7 @@ const NOTES_FEATURE: ProjectFeature = {
     writingPackage: false,
     outline8: false,
     market: false,
+    plot: false,
     contentDir: '文档',
     contentLabel: '文档',
     createLabel: '新建文档',

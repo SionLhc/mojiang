@@ -29,7 +29,8 @@ export type WorkspaceView =
     | 'characters'
     | 'golden3'
     | 'package'
-    | 'market';
+    | 'market'
+    | 'plot';
 
 /** 一条提示 */
 export interface Toast {
