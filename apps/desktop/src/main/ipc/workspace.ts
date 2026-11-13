@@ -7,6 +7,7 @@ import { ipcMain } from 'electron';
 import { createFolder, listTree, setDocumentTags } from '../services/content';
 import { logError } from '../services/logger';
 import { assertBookId } from '../services/paths';
+import { readMindBoard, writeMindBoard } from '../services/mind-board';
 import { readPlot, writePlot } from '../services/plot';
 import { createQuickNote } from '../services/quick-note';
 import { searchAll } from '../services/search';
@@ -112,6 +113,25 @@ export function registerWorkspaceIpc(): void {
             await writePlot(assertBookId(bookId), graph as never);
         } catch (error) {
             throw wrapError('保存剧情图', error);
+        }
+    });
+
+    ipcMain.handle('mindboard:read', async (_event, bookId: string) => {
+        try {
+            return await readMindBoard(assertBookId(bookId));
+        } catch (error) {
+            throw wrapError('读取导图画板', error);
+        }
+    });
+
+    ipcMain.handle('mindboard:write', async (_event, bookId: string, graph: unknown) => {
+        try {
+            if (typeof graph !== 'object' || graph === null) {
+                throw new Error('导图画板数据非法');
+            }
+            await writeMindBoard(assertBookId(bookId), graph as never);
+        } catch (error) {
+            throw wrapError('保存导图画板', error);
         }
     });
 

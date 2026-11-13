@@ -3,6 +3,7 @@ import { getProjectFeatures } from '@mojiang/core';
 import EditorPane from '@/components/EditorPane';
 import ExportDialog from '@/components/ExportDialog';
 import HomeView from '@/components/HomeView';
+import MindBoardView from '@/components/MindBoardView';
 import OutlineDialog from '@/components/OutlineDialog';
 import PlotView from '@/components/PlotView';
 import QuickNoteDialog from '@/components/QuickNoteDialog';
@@ -29,7 +30,8 @@ export default function Workspace() {
     const chapterId = useAppStore((state) => state.chapterId);
 
     const activeView = useAppStore((state) => state.activeView);
-    const isPlot = activeView === 'plot';
+    // 画板类视图（剧情画板、导图画板）要横向空间，不渲染右栏
+    const isBoard = activeView === 'plot' || activeView === 'mindboard';
 
     const searchOpen = useAppStore((state) => state.searchOpen);
     const quickNoteOpen = useAppStore((state) => state.quickNoteOpen);
@@ -118,9 +120,9 @@ export default function Workspace() {
                     onOpenExport={() => setExportOpen(true)}
                 />
             )}
-            {isPlot ? (
-                // 画布要横向空间，这里不渲染右栏
-                <PlotView />
+            {isBoard ? (
+                // 画布要横向空间，这里不渲染右栏；剧情画板和导图画板各是各的
+                activeView === 'plot' ? <PlotView /> : <MindBoardView />
             ) : (
                 <>
                     <EditorPane

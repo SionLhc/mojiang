@@ -211,6 +211,12 @@ export interface MoJiangApi {
         /** 保存剧情图 */
         write(bookId: string, graph: import('@mojiang/core').PlotGraph): Promise<void>;
     };
+    mindboard: {
+        /** 读导图画板，没有返回空图 */
+        read(bookId: string): Promise<import('@mojiang/core').MindBoardGraph>;
+        /** 保存导图画板 */
+        write(bookId: string, graph: import('@mojiang/core').MindBoardGraph): Promise<void>;
+    };
     stats: {
         /** 读码字统计 */
         read(): Promise<WritingStats>;

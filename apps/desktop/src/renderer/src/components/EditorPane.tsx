@@ -8,6 +8,7 @@ import LedgerView from '@/components/LedgerView';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor';
 import MarketView from '@/components/MarketView';
 import MaterialsView from '@/components/MaterialsView';
+import MindBoardView from '@/components/MindBoardView';
 import PackageView from '@/components/PackageView';
 import PlotView from '@/components/PlotView';
 import SensitiveView from '@/components/SensitiveView';
@@ -171,6 +172,9 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     }
     if (activeView === 'diagram') {
         return <DiagramView />;
+    }
+    if (activeView === 'mindboard') {
+        return <MindBoardView />;
     }
 
     if (!chapterId) {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     layoutFlow,
     layoutMindmap,
-    layoutToPlotItems,
+    layoutToMindBoard,
     parseFlow,
     parseMindmap,
     type DiagramLayout,
@@ -288,8 +288,8 @@ export default function DiagramView() {
     }
 
     /**
-     * 把当前图表铺到画板上：转成画布节点，追加进剧情图，跳到画板
-     * 铺过去就是普通节点，随便拖动、连线、改字
+     * 把当前图表铺到导图画板上：转成画板节点，追加进导图.json，跳到导图画板
+     * 导图画板和剧情画板是两块不同的画板，铺过去就是普通节点，随便拖动、连线、改字
      */
     async function pushToBoard(): Promise<void> {
         if (!book) {
@@ -300,20 +300,18 @@ export default function DiagramView() {
             return;
         }
         try {
-            const graph = await window.api.plot.read(book.id);
-            const items = layoutToPlotItems(
-                layout,
-                graph.nodes,
-                'idea',
-                mode === 'mindmap' ? 'parallel' : 'cause',
-            );
-            await window.api.plot.write(book.id, {
+            const graph = await window.api.mindboard.read(book.id);
+            // 多次铺入时整体右移，避开已有节点
+            const maxRight = graph.nodes.reduce((max, node) => Math.max(max, node.x + 220), 0);
+            const offset = graph.nodes.length > 0 ? { x: maxRight + 80, y: 0 } : { x: 0, y: 0 };
+            const items = layoutToMindBoard(layout, graph.nodes, offset);
+            await window.api.mindboard.write(book.id, {
                 nodes: [...graph.nodes, ...items.nodes],
                 edges: [...graph.edges, ...items.edges],
                 updatedAt: new Date().toISOString(),
             });
-            setActiveView('plot');
-            pushToast('success', `已铺 ${items.nodes.length} 个节点到画板，可以拖动排版`);
+            setActiveView('mindboard');
+            pushToast('success', `已铺 ${items.nodes.length} 个节点到导图画板，可以拖动排版`);
         } catch (error) {
             pushToast('error', `铺到画板失败：${errorMessage(error)}`);
         }
@@ -358,9 +356,9 @@ export default function DiagramView() {
                         type="button"
                         className="btn-outline h-7 text-[13px]"
                         onClick={() => void pushToBoard()}
-                        title="转成画板节点，铺过去后可以随意拖动排版"
+                        title="转成节点铺到导图画板（和剧情画板分开），铺过去后可以随意拖动排版"
                     >
-                        铺到画板
+                        铺到导图画板
                     </button>
                 </div>
             </div>

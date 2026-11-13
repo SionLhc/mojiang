@@ -16,6 +16,7 @@ export * from './text/sensitive';
 export * from './text/diagram';
 export * from './prompt';
 export * from './plot';
+export * from './mind-board';
 export * from './project';
 export * from './lexicon/word-lists';
 export * from './lexicon/rules';

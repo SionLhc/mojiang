@@ -30,7 +30,8 @@ const TOOL_VIEWS: Array<{
         | 'stats'
         | 'materials'
         | 'sensitive'
-        | 'diagram';
+        | 'diagram'
+        | 'mindboard';
 }> = [
     { key: 'plot', label: '剧情编排', generalLabel: '画板', feature: 'plot' },
     { key: 'ledger', label: '账本', feature: 'ledger' },
@@ -43,6 +44,7 @@ const TOOL_VIEWS: Array<{
     { key: 'materials', label: '素材卡片', feature: 'materials' },
     { key: 'sensitive', label: '敏感词', feature: 'sensitive' },
     { key: 'diagram', label: '图表', generalLabel: '图表', feature: 'diagram' },
+    { key: 'mindboard', label: '导图画板', generalLabel: '导图画板', feature: 'mindboard' },
 ];
 
 /** 书库排序方式 */

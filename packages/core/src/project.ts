@@ -58,6 +58,8 @@ export interface ProjectFeature {
     sensitive: boolean;
     /** 流程图 / 思维导图 */
     diagram: boolean;
+    /** 思维导图画板（独立画板，按层级着色、可自动排版） */
+    mindboard: boolean;
     /** 内容根目录的物理名字 */
     contentDir: string;
     /** 界面上一级内容的叫法，如"正文"/"文档" */
@@ -86,6 +88,8 @@ const NOVEL_FEATURE: ProjectFeature = {
     materials: true,
     sensitive: true,
     diagram: true,
+    // 导图画板是通用能力，梳理结构都用得上
+    mindboard: true,
     contentDir: '正文',
     contentLabel: '正文',
     createLabel: '新建章节',
@@ -110,6 +114,8 @@ const NOTES_FEATURE: ProjectFeature = {
     materials: true,
     sensitive: true,
     diagram: true,
+    // 导图画板是通用能力
+    mindboard: true,
     contentDir: '文档',
     contentLabel: '文档',
     createLabel: '新建文档',

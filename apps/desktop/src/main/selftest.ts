@@ -19,7 +19,10 @@ import {
     compareVoices,
     composeSystemPrompt,
     computeBaseline,
+    createMindBoardNode,
     createPlotNode,
+    autoArrangeMindBoard,
+    layoutToMindBoard,
     parsePlotDiagnosis,
     serializePlotForPrompt,
     computeTextMetrics,
@@ -34,7 +37,6 @@ import {
     getProjectFeatures,
     layoutFlow,
     layoutMindmap,
-    layoutToPlotItems,
     parseFlow,
     parseMindmap,
     recordWritingDay,
@@ -478,15 +480,25 @@ export function runSelfTest(): SelfTestResult {
         flowGraph.nodes.find((node) => node.id === '判断')?.shape === 'diamond' &&
         flowLayout.boxes.length === 3;
 
-    // 导图铺画板：编号要续在已有节点后面，坐标要避让
-    const boardItems = layoutToPlotItems(mindLayout, [
-        { ...createPlotNode('idea', 0, 0, 'n1'), title: '已有节点' },
-    ]);
+    // 导图铺导图画板：编号要续在已有节点后面（已有 b1 → 新节点从 b2 起），坐标随偏移避让
+    const boardItems = layoutToMindBoard(
+        mindLayout,
+        [createMindBoardNode('已有节点', 0, 0, 0, 'b1')],
+        { x: 320, y: 0 },
+    );
+    // 自动排版：树形展开后所有坐标非负，节点数不变
+    const arranged = autoArrangeMindBoard({
+        nodes: boardItems.nodes.map((node) => ({ ...node })),
+        edges: boardItems.edges.map((edge) => ({ ...edge })),
+        updatedAt: new Date().toISOString(),
+    });
     const diagramBoardOk =
         boardItems.nodes.length === 4 &&
-        boardItems.nodes[0].id === 'n2' &&
-        boardItems.nodes.every((node) => node.x > 240) &&
-        boardItems.edges.length === 3;
+        boardItems.nodes[0].id === 'b2' &&
+        boardItems.nodes.every((node) => node.x >= 320) &&
+        boardItems.edges.length === 3 &&
+        arranged.nodes.length === 4 &&
+        arranged.nodes.every((node) => node.x >= 0 && node.y >= 0);
 
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';

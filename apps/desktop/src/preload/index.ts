@@ -111,6 +111,10 @@ const api: MoJiangApi = {
         read: (bookId: string) => ipcRenderer.invoke('plot:read', bookId),
         write: (bookId: string, graph: unknown) => ipcRenderer.invoke('plot:write', bookId, graph),
     },
+    mindboard: {
+        read: (bookId: string) => ipcRenderer.invoke('mindboard:read', bookId),
+        write: (bookId: string, graph: unknown) => ipcRenderer.invoke('mindboard:write', bookId, graph),
+    },
     stats: {
         read: () => ipcRenderer.invoke('stats:read'),
         record: (deltaChars: number, deltaSeconds: number) =>
