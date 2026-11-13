@@ -491,8 +491,9 @@ body {
 
     .btn {
         @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5
-            text-sm font-medium transition-colors disabled:opacity-40
-            disabled:cursor-not-allowed whitespace-nowrap;
+            text-sm font-medium transition-all duration-150 disabled:opacity-40
+            disabled:cursor-not-allowed whitespace-nowrap
+            active:scale-[0.98];
     }
 
     .btn-primary {
@@ -509,7 +510,9 @@ body {
 
     .field {
         @apply w-full rounded-md border border-ink-700 bg-ink-850 px-3 py-2 text-sm
-            text-ink-100 placeholder:text-ink-500 focus:border-jade-500 focus:outline-none;
+            text-ink-100 transition-colors placeholder:text-ink-500
+            hover:border-ink-600 focus:border-jade-500 focus:outline-none
+            focus:ring-2 focus:ring-jade-500/15;
     }
 
     .label {

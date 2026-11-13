@@ -169,7 +169,7 @@ export default function HomeView({ onOpenSettings }: HomeViewProps) {
                             type="button"
                             key={entry.kind}
                             onClick={() => startCreate(entry.kind)}
-                            className="home-entry group relative flex flex-col items-start gap-2 rounded-xl border border-ink-750 bg-ink-900 p-5 text-left transition-colors hover:border-jade-500 hover:bg-ink-850"
+                            className="home-entry group relative flex flex-col items-start gap-2 rounded-xl border border-ink-750 bg-ink-900 p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-jade-500 hover:bg-ink-850 hover:shadow-md"
                             style={{
                                 animation: 'home-card-in 440ms cubic-bezier(0.2, 0.9, 0.3, 1) both',
                                 animationDelay: `${120 + index * 80}ms`,
@@ -177,7 +177,11 @@ export default function HomeView({ onOpenSettings }: HomeViewProps) {
                         >
                             <span
                                 className="home-entry-icon flex h-11 w-11 items-center justify-center rounded-lg"
-                                style={{ backgroundColor: `${entry.accent}18`, color: entry.accent }}
+                                style={{
+                                    backgroundColor: `${entry.accent}14`,
+                                    color: entry.accent,
+                                    boxShadow: `inset 0 0 0 1px ${entry.accent}24`,
+                                }}
                             >
                                 <svg
                                     width="22"
@@ -263,7 +267,7 @@ export default function HomeView({ onOpenSettings }: HomeViewProps) {
                                         <button
                                             type="button"
                                             onClick={() => void openBook(item)}
-                                            className="home-project w-full rounded-lg border border-ink-750 bg-ink-900 px-3 py-3 text-left hover:border-jade-600"
+                                            className="home-project w-full rounded-lg border border-ink-750 bg-ink-900 px-3 py-3 pr-9 text-left shadow-sm hover:border-jade-600"
                                             style={{
                                                 animation:
                                                     'home-card-in 380ms cubic-bezier(0.2, 0.9, 0.3, 1) both',
@@ -275,7 +279,7 @@ export default function HomeView({ onOpenSettings }: HomeViewProps) {
                                                     {item.title}
                                                 </span>
                                                 <span
-                                                    className={`shrink-0 rounded px-1 py-0.5 text-[12px] ${KIND_TONE[kind]}`}
+                                                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[12px] ${KIND_TONE[kind]}`}
                                                 >
                                                     {PROJECT_KINDS.find((k) => k.kind === kind)?.name ?? '小说'}
                                                 </span>
@@ -289,9 +293,19 @@ export default function HomeView({ onOpenSettings }: HomeViewProps) {
                                             type="button"
                                             title="删除到回收站"
                                             onClick={() => handleRemove(item.id, item.title)}
-                                            className="absolute right-1.5 top-1.5 hidden h-5 w-5 items-center justify-center rounded text-ink-500 hover:bg-red-500/20 hover:text-red-500 group-hover:flex"
+                                            className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-ink-500 opacity-0 transition-colors hover:bg-red-500 hover:text-white group-hover:opacity-100"
                                         >
-                                            ×
+                                            <svg
+                                                width="11"
+                                                height="11"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2.6"
+                                                strokeLinecap="round"
+                                            >
+                                                <path d="M18 6L6 18M6 6l12 12" />
+                                            </svg>
                                         </button>
                                     </li>
                                 );
