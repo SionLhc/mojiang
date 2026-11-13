@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getProjectFeatures } from '@mojiang/core';
 import EditorPane from '@/components/EditorPane';
 import ExportDialog from '@/components/ExportDialog';
+import HomeView from '@/components/HomeView';
 import OutlineDialog from '@/components/OutlineDialog';
 import PlotView from '@/components/PlotView';
 import QuickNoteDialog from '@/components/QuickNoteDialog';
@@ -93,6 +94,18 @@ export default function Workspace() {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [save, openSearch, openQuickNote]);
+
+    // 没有打开项目时先看首页：选做什么，再进对应界面
+    if (!book) {
+        return (
+            <>
+                <HomeView onOpenSettings={() => setSettingsOpen(true)} />
+                <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+                <SearchDialog open={searchOpen} onClose={closeSearch} />
+                <QuickNoteDialog open={quickNoteOpen} onClose={closeQuickNote} />
+            </>
+        );
+    }
 
     return (
         <div className="flex h-full min-h-0">

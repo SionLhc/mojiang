@@ -30,7 +30,7 @@ export default function Modal({
     }
 
     return (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-ink-600/30 p-6 backdrop-blur-[2px]">
             <div
                 className={`flex max-h-full w-full ${widthClass} flex-col overflow-hidden rounded-xl border border-ink-700 bg-ink-900 shadow-2xl`}
             >
