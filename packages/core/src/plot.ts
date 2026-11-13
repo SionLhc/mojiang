@@ -7,6 +7,8 @@
  * 3. 诊断结果必须能落到具体节点上，否则就是废话
  */
 
+import type { DiagramLayout } from './text/diagram';
+
 /**
  * 节点类型
  * 分两组：剧情组给小说用，通用组给笔记/工作文档用
@@ -435,4 +437,60 @@ export function parsePlotDiagnosis(raw: string, validNodeIds: string[]): PlotDia
  */
 export function isPlotGraphEmpty(graph: PlotGraph | null): boolean {
     return !graph || graph.nodes.length === 0;
+}
+
+/**
+ * 把图表布局（思维导图/流程图）转成画板的节点和连线
+ * 节点 id 从现有最大编号继续往后编，坐标整体偏移避免盖住已有节点
+ * @param layout 图表布局结果
+ * @param existing 现有画板节点，用于续编号和避让
+ * @param kind 新节点的类型
+ * @param edgeKind 连线语义：导图用平行，流程用因果
+ * @returns 可以直接并进画布的节点与连线
+ */
+export function layoutToPlotItems(
+    layout: DiagramLayout,
+    existing: PlotNode[],
+    kind: PlotNodeKind = 'idea',
+    edgeKind: PlotEdgeKind = 'parallel',
+): { nodes: PlotNode[]; edges: PlotEdge[] } {
+    // 现有节点的最大右缘 + 间距 = 新图的起始 x，避免铺上去就重叠
+    const maxRight = existing.reduce((max, node) => Math.max(max, node.x + 240), 0);
+    const offsetX = existing.length > 0 ? maxRight + 80 : 0;
+
+    // 布局里的 id（m0/流程 id）要换成画板的短 id（n1/n2…）
+    const idMap = new Map<string, string>();
+    const nodes: PlotNode[] = layout.boxes.map((box, index) => {
+        const id = `n${existing.length + index + 1}`;
+        idMap.set(box.id, id);
+        return {
+            id,
+            kind,
+            title: box.label,
+            summary: '',
+            characters: [],
+            x: Math.round(box.x * 1.15 + offsetX),
+            // 画板卡片比导图盒子高，纵向拉开放止贴在一起
+            y: Math.round(box.y * 1.35),
+        };
+    });
+
+    const edges: PlotEdge[] = [];
+    layout.edges.forEach((edge, index) => {
+        const source = idMap.get(edge.from);
+        const target = idMap.get(edge.to);
+        // 源头或目标不在本次转换里就丢掉，画板上不允许悬空线
+        if (!source || !target) {
+            return;
+        }
+        edges.push({
+            id: `e-${source}-${target}-${index}`,
+            source,
+            target,
+            kind: edgeKind,
+            label: edge.label,
+        });
+    });
+
+    return { nodes, edges };
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     layoutFlow,
     layoutMindmap,
+    layoutToPlotItems,
     parseFlow,
     parseMindmap,
     type DiagramLayout,
@@ -133,6 +134,7 @@ export default function DiagramView() {
     const chapterId = useAppStore((state) => state.chapterId);
     const content = useAppStore((state) => state.content);
     const settings = useAppStore((state) => state.settings);
+    const setActiveView = useAppStore((state) => state.setActiveView);
     const pushToast = useAppStore((state) => state.pushToast);
 
     const [mode, setMode] = useState<'mindmap' | 'flow'>('mindmap');
@@ -285,6 +287,38 @@ export default function DiagramView() {
         }
     }
 
+    /**
+     * 把当前图表铺到画板上：转成画布节点，追加进剧情图，跳到画板
+     * 铺过去就是普通节点，随便拖动、连线、改字
+     */
+    async function pushToBoard(): Promise<void> {
+        if (!book) {
+            return;
+        }
+        if (!layout) {
+            pushToast('error', '现在这张图是空的，先写点内容或让 AI 生成');
+            return;
+        }
+        try {
+            const graph = await window.api.plot.read(book.id);
+            const items = layoutToPlotItems(
+                layout,
+                graph.nodes,
+                'idea',
+                mode === 'mindmap' ? 'parallel' : 'cause',
+            );
+            await window.api.plot.write(book.id, {
+                nodes: [...graph.nodes, ...items.nodes],
+                edges: [...graph.edges, ...items.edges],
+                updatedAt: new Date().toISOString(),
+            });
+            setActiveView('plot');
+            pushToast('success', `已铺 ${items.nodes.length} 个节点到画板，可以拖动排版`);
+        } catch (error) {
+            pushToast('error', `铺到画板失败：${errorMessage(error)}`);
+        }
+    }
+
     return (
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-ink-950">
             {/* 顶栏：模式切换 + AI 生成 */}
@@ -319,6 +353,14 @@ export default function DiagramView() {
                         disabled={generating}
                     >
                         {generating ? '生成中…' : 'AI 帮我画'}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-outline h-7 text-[13px]"
+                        onClick={() => void pushToBoard()}
+                        title="转成画板节点，铺过去后可以随意拖动排版"
+                    >
+                        铺到画板
                     </button>
                 </div>
             </div>

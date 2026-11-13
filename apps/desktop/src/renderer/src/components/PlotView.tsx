@@ -19,7 +19,10 @@ import {
     buildCanvasUserPrompt,
     createPlotNode,
     getProjectFeatures,
+    layoutMindmap,
+    layoutToPlotItems,
     nextPlotNodeId,
+    parseMindmap,
     parsePlotDiagnosis,
     plotKindsFor,
     type PlotDiagnosis,
@@ -91,6 +94,8 @@ function PlotCanvas() {
     const [diagnosis, setDiagnosis] = useState<PlotDiagnosis | null>(null);
     const [diagnosing, setDiagnosing] = useState(false);
     const [rawOutput, setRawOutput] = useState('');
+    const [drawing, setDrawing] = useState(false);
+    const content = useAppStore((state) => state.content);
 
     const { screenToFlowPosition, setCenter } = useReactFlow();
     const skipNextSave = useRef(true);
@@ -333,6 +338,95 @@ function PlotCanvas() {
     }
 
     /**
+     * AI 画思维导图：用当前文档内容生成大纲，布局后铺到画布上
+     * 铺上去就是普通节点，随便拖、连线、改字
+     */
+    async function runDrawMindmap(): Promise<void> {
+        if (!book || !settings) {
+            pushToast('info', '先配置模型');
+            return;
+        }
+        const source = content.trim();
+        if (source.length === 0) {
+            pushToast('info', '先在正文写点东西，或到「图表」工具里按主题生成');
+            return;
+        }
+
+        setDrawing(true);
+        const requestId = crypto.randomUUID();
+        let buffer = '';
+
+        window.api.llm.onStream((event) => {
+            if (event.requestId !== requestId) {
+                return;
+            }
+            if (event.type === 'chunk' && event.delta) {
+                buffer += event.delta;
+            }
+            if (event.type === 'done') {
+                window.api.llm.offStream();
+                setDrawing(false);
+                finishDrawMindmap(buffer);
+            }
+            if (event.type === 'error') {
+                window.api.llm.offStream();
+                setDrawing(false);
+                pushToast('error', event.message ?? '生成失败');
+            }
+        });
+
+        try {
+            const result = await window.api.llm.chat({
+                requestId,
+                providerId: settings.provider.id,
+                model: settings.provider.model,
+                messages: [
+                    {
+                        role: 'system',
+                        content:
+                            '你是思维导图助手。输出思维导图大纲：Markdown 无序列表，两个空格缩进表示层级，每行以「- 」开头。只输出列表本身，不要解释。',
+                    },
+                    {
+                        role: 'user',
+                        content: `把下面的内容整理成结构清晰的思维导图，抓住主干，层级不超过 4 级：\n\n${source.slice(0, 4000)}`,
+                    },
+                ],
+                temperature: 0.3,
+                maxTokens: 1200,
+                purpose: 'plot-mindmap',
+            });
+            if (!result.accepted) {
+                window.api.llm.offStream();
+                setDrawing(false);
+                pushToast('error', result.message ?? '请求被拒绝');
+            }
+        } catch (error) {
+            window.api.llm.offStream();
+            setDrawing(false);
+            pushToast('error', errorMessage(error));
+        }
+    }
+
+    /**
+     * 解析导图大纲并铺到画布上
+     * @param raw 模型输出的缩进列表
+     */
+    function finishDrawMindmap(raw: string): void {
+        const roots = parseMindmap(raw);
+        if (roots.length === 0) {
+            pushToast('error', '模型输出不是大纲格式，没铺成');
+            return;
+        }
+        const layout = layoutMindmap(roots);
+        const existing = nodes.map(payloadOf).filter((node): node is PlotNode => node !== null);
+        const items = layoutToPlotItems(layout, existing, primaryKind, 'parallel');
+        setNodes((previous) => [...previous, ...items.nodes.map(toFlowNode)]);
+        setEdges((previous) => [...previous, ...items.edges.map(toFlowEdge)]);
+        skipNextSave.current = false;
+        pushToast('success', `导图已铺上画布：${items.nodes.length} 个节点，拖动即可排版`);
+    }
+
+    /**
      * 相机飞到某个节点
      * @param id 节点 id
      */
@@ -386,6 +480,15 @@ function PlotCanvas() {
                         onClick={() => addNode(secondaryKind)}
                     >
                         + {isNovel ? '伏笔' : '待办'}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-outline text-[13px]"
+                        onClick={() => void runDrawMindmap()}
+                        disabled={drawing}
+                        title="把当前文档整理成思维导图，直接铺上画布"
+                    >
+                        {drawing ? '画图中…' : 'AI 画导图'}
                     </button>
                     <button
                         type="button"

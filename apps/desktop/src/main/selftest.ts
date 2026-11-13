@@ -34,6 +34,7 @@ import {
     getProjectFeatures,
     layoutFlow,
     layoutMindmap,
+    layoutToPlotItems,
     parseFlow,
     parseMindmap,
     recordWritingDay,
@@ -477,6 +478,16 @@ export function runSelfTest(): SelfTestResult {
         flowGraph.nodes.find((node) => node.id === '判断')?.shape === 'diamond' &&
         flowLayout.boxes.length === 3;
 
+    // 导图铺画板：编号要续在已有节点后面，坐标要避让
+    const boardItems = layoutToPlotItems(mindLayout, [
+        { ...createPlotNode('idea', 0, 0, 'n1'), title: '已有节点' },
+    ]);
+    const diagramBoardOk =
+        boardItems.nodes.length === 4 &&
+        boardItems.nodes[0].id === 'n2' &&
+        boardItems.nodes.every((node) => node.x > 240) &&
+        boardItems.edges.length === 3;
+
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
     const mergedPrompt = composeSystemPrompt(basePrompt, '不要用形容词堆砌');
@@ -576,7 +587,7 @@ export function runSelfTest(): SelfTestResult {
         outlineNavOk,
         statsOk,
         sensitiveOk,
-        diagramOk,
+        diagramOk: diagramOk && diagramBoardOk,
         promptOk,
         plotOk,
         importOk,
