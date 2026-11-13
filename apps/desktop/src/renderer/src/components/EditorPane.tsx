@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
-import { getProjectFeatures, renderMarkdownToHtml } from '@mojiang/core';
+import { activeHeadingIndex, extractHeadings, getProjectFeatures, renderMarkdownToHtml } from '@mojiang/core';
 import CharacterView from '@/components/CharacterView';
 import ForeshadowView from '@/components/ForeshadowView';
 import Golden3View from '@/components/Golden3View';
@@ -73,7 +73,13 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     const [tagInput, setTagInput] = useState('');
     const [tagEditing, setTagEditing] = useState(false);
     const [compare, setCompare] = useState(false);
+    const [outline, setOutline] = useState(false);
+    const [viewportLine, setViewportLine] = useState(1);
     const editorRef = useRef<MarkdownEditorHandle | null>(null);
+
+    // 大纲数据：随内容变化重新提取标题
+    const headings = useMemo(() => extractHeadings(content), [content]);
+    const activeHeading = activeHeadingIndex(headings, viewportLine);
 
     // 对照预览：用 deferred value 让输入优先，渲染滞后一帧，长文档也不卡手
     const deferredContent = useDeferredValue(content);
@@ -200,6 +206,14 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
                     )}
                     <button
                         type="button"
+                        className={`text-[13px] ${outline ? 'btn-outline text-jade-400' : 'btn-ghost'}`}
+                        onClick={() => setOutline((value) => !value)}
+                        title="按标题快速跳转的目录"
+                    >
+                        大纲
+                    </button>
+                    <button
+                        type="button"
                         className={`text-[13px] ${compare ? 'btn-outline text-jade-400' : 'btn-ghost'}`}
                         onClick={() => setCompare((value) => !value)}
                         title="左边改 Markdown，右边看排版效果"
@@ -299,7 +313,7 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
             <div className="flex min-h-0 flex-1 overflow-hidden">
                 <div
                     className={`min-w-0 flex-1 overflow-hidden px-6 py-5 ${
-                        compare ? 'border-r border-ink-800' : ''
+                        compare || outline ? 'border-r border-ink-800' : ''
                     }`}
                 >
                     <div className="mx-auto h-full max-w-prose">
@@ -310,18 +324,63 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
                             fontSize={fontSize}
                             highlightOffsets={report?.lexicon.findings.map((finding) => finding.start) ?? []}
                             showLineNumbers={features.numberedFiles}
+                            onViewportLine={setViewportLine}
                         />
                     </div>
                 </div>
 
                 {compare && (
-                    <div className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+                    <div
+                        className={`min-w-0 flex-1 overflow-y-auto px-6 py-5 ${
+                            outline ? 'border-r border-ink-800' : ''
+                        }`}
+                    >
                         <div
                             className="md-preview mx-auto max-w-prose"
                             // 内容来自本机作者的 Markdown，渲染前已统一转义过 HTML 标签
                             dangerouslySetInnerHTML={{ __html: previewHtml }}
                         />
                     </div>
+                )}
+
+                {/* 大纲面板：窄栏放在最右侧，点击标题跳到对应行 */}
+                {outline && (
+                    <aside className="w-52 shrink-0 overflow-y-auto px-3 py-4">
+                        <p className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-500">
+                            大纲
+                        </p>
+                        {headings.length === 0 ? (
+                            <p className="px-1 text-[13px] leading-relaxed text-ink-600">
+                                这篇还没有标题。用工具栏的 H 按钮加个「## 小标题」，这里就会出现目录。
+                            </p>
+                        ) : (
+                            <nav className="flex flex-col gap-0.5">
+                                {headings.map((item, index) => (
+                                    <button
+                                        key={`${item.line}-${item.text}`}
+                                        type="button"
+                                        onClick={() => {
+                                            setViewportLine(item.line);
+                                            editorRef.current?.scrollToLine(item.line);
+                                        }}
+                                        className={`truncate rounded px-1.5 py-1 text-left text-[13px] transition-colors hover:bg-ink-800 hover:text-ink-100 ${
+                                            index === activeHeading
+                                                ? 'bg-ink-800 font-medium text-jade-400'
+                                                : item.level === 1
+                                                  ? 'text-ink-100'
+                                                  : item.level === 2
+                                                    ? 'text-ink-300'
+                                                    : 'text-ink-500'
+                                        }`}
+                                        style={{ paddingLeft: `${(item.level - 1) * 12 + 6}px` }}
+                                        title={`第 ${item.line} 行`}
+                                    >
+                                        {item.text}
+                                    </button>
+                                ))}
+                            </nav>
+                        )}
+                    </aside>
                 )}
             </div>
 

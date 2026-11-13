@@ -7,6 +7,7 @@
 import { rmSync } from 'fs';
 import { join } from 'path';
 import {
+    activeHeadingIndex,
     answerQuestion,
     applyPatch,
     assembleWritingPackage,
@@ -28,6 +29,7 @@ import {
     diagnoseGoldenChapter,
     diffLines,
     extractDialogueForCharacter,
+    extractHeadings,
     getProjectFeatures,
     lastTouchedChapter,
     parseCharacterMarkdown,
@@ -116,6 +118,8 @@ export interface SelfTestResult {
     workspaceOk: boolean;
     /** Markdown 对照预览的渲染与转义是否正常 */
     markdownOk: boolean;
+    /** 大纲导航的标题提取与当前小节定位是否正常 */
+    outlineNavOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
@@ -402,6 +406,29 @@ export function runSelfTest(): SelfTestResult {
         !escapedHtml.includes('<script>') &&
         escapedHtml.includes('&lt;script&gt;');
 
+    // 大纲导航：标题要按行号提取，代码块里的 # 注释不能算标题，当前小节要能定位
+    const outlineText = [
+        '# 全书',
+        '正文一段。',
+        '## 第一章 起',
+        '```',
+        '# 这是代码里的注释，不是标题',
+        '```',
+        '### 1.1 小节',
+        '## 第二章 承',
+    ].join('\n');
+    const outlineItems = extractHeadings(outlineText);
+    const outlineNavOk =
+        outlineItems.length === 4 &&
+        outlineItems[0].level === 1 &&
+        outlineItems[0].text === '全书' &&
+        outlineItems[1].line === 3 &&
+        outlineItems[2].text === '1.1 小节' &&
+        outlineItems[3].text === '第二章 承' &&
+        activeHeadingIndex(outlineItems, 5) === 1 &&
+        activeHeadingIndex(outlineItems, 1) === 0 &&
+        activeHeadingIndex([], 3) === -1;
+
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
     const mergedPrompt = composeSystemPrompt(basePrompt, '不要用形容词堆砌');
@@ -498,6 +525,7 @@ export function runSelfTest(): SelfTestResult {
         marketOk,
         workspaceOk,
         markdownOk,
+        outlineNavOk,
         promptOk,
         plotOk,
         importOk,

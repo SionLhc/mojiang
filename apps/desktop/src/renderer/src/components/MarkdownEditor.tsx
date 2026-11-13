@@ -34,6 +34,8 @@ interface MarkdownEditorProps {
     highlightOffsets?: number[];
     /** 是否显示行号，笔记场景不需要 */
     showLineNumbers?: boolean;
+    /** 视口顶部所在行变化时回调，供右侧大纲高亮 */
+    onViewportLine?: (line: number) => void;
 }
 
 /** frontmatter 块：从文件开头到第二个 --- */
@@ -122,6 +124,8 @@ export interface MarkdownEditorHandle {
     insertText(text: string): void;
     /** 让编辑器拿回焦点 */
     focus(): void;
+    /** 滚到指定行（行号从 1 开始） */
+    scrollToLine(line: number): void;
 }
 
 /**
@@ -131,13 +135,23 @@ export interface MarkdownEditorHandle {
  */
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
     function MarkdownEditorInner(
-        { value, onChange, fontSize, readOnly, highlightOffsets, showLineNumbers = true },
+        {
+            value,
+            onChange,
+            fontSize,
+            readOnly,
+            highlightOffsets,
+            showLineNumbers = true,
+            onViewportLine,
+        },
         ref,
     ) {
         const hostRef = useRef<HTMLDivElement | null>(null);
         const viewRef = useRef<EditorView | null>(null);
         const onChangeRef = useRef(onChange);
         onChangeRef.current = onChange;
+        const onViewportLineRef = useRef(onViewportLine);
+        onViewportLineRef.current = onViewportLine;
 
     useEffect(() => {
         if (!hostRef.current) {
@@ -198,6 +212,29 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
         }
     }, [value]);
 
+    // 大纲联动：编辑器滚动时上报视口首行，供大纲高亮当前小节
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view) {
+            return;
+        }
+        const handleScroll = (): void => {
+            try {
+                // 取编辑区左上角附近的坐标，得到视口第一行
+                const topPos = view.posAtCoords({ x: 20, y: 20 });
+                if (topPos !== null) {
+                    const line = view.state.doc.lineAt(topPos).number;
+                    onViewportLineRef.current?.(line);
+                }
+            } catch {
+                // 滚动过程中坐标偶尔越界，忽略即可
+            }
+        };
+        const scroller = view.scrollDOM;
+        scroller.addEventListener('scroll', handleScroll, { passive: true });
+        return () => scroller.removeEventListener('scroll', handleScroll);
+    }, []);
+
     // 词库命中：把字符偏移换算成行号，给整行加底色
     const highlightKey = (highlightOffsets ?? []).join(',');
     useEffect(() => {
@@ -222,6 +259,23 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
         // 用拼接后的字符串做依赖，避免父组件每次渲染新建数组导致死循环
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [highlightKey]);
+
+    // 滚动时上报"现在看的是哪一行"，右侧大纲据此高亮当前章节
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view) {
+            return;
+        }
+        const handle = (): void => {
+            const line = view.state.doc.lineAt(
+                view.posAtCoords({ x: 20, y: 20 }) ?? 0,
+            ).number;
+            onViewportLineRef.current?.(line);
+        };
+        const scroller = view.scrollDOM;
+        scroller.addEventListener('scroll', handle, { passive: true });
+        return () => scroller.removeEventListener('scroll', handle);
+    }, []);
 
     useImperativeHandle(
         ref,
@@ -269,6 +323,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
             },
             focus() {
                 viewRef.current?.focus();
+            },
+            scrollToLine(line: number) {
+                const view = viewRef.current;
+                if (!view) {
+                    return;
+                }
+                const total = view.state.doc.lines;
+                const target = Math.min(Math.max(1, Math.round(line)), total);
+                const pos = view.state.doc.line(target).from;
+                view.dispatch({
+                    selection: { anchor: pos },
+                    effects: EditorView.scrollIntoView(pos, { y: 'start' }),
+                });
+                view.focus();
             },
         }),
         [],
