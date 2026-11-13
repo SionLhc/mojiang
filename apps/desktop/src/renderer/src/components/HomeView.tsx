@@ -4,11 +4,6 @@ import Modal from '@/components/Modal';
 import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
-/** 属性 */
-interface HomeViewProps {
-    onOpenSettings: () => void;
-}
-
 /** 入口卡片的外观与文案 */
 const ENTRIES: Array<{
     kind: ProjectKind;
@@ -53,7 +48,7 @@ const KIND_TONE: Record<ProjectKind, string> = {
  * 首页：先选做什么，再进对应界面
  * 没有打开项目时显示，替代原来的书库侧栏
  */
-export default function HomeView({ onOpenSettings }: HomeViewProps) {
+export default function HomeView() {
     const books = useAppStore((state) => state.books);
     const createBook = useAppStore((state) => state.createBook);
     const openBook = useAppStore((state) => state.openBook);
@@ -241,13 +236,6 @@ export default function HomeView({ onOpenSettings }: HomeViewProps) {
                                 onClick={() => void handleImport()}
                             >
                                 导入稿件
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-ghost h-8 text-[13px]"
-                                onClick={onOpenSettings}
-                            >
-                                设置
                             </button>
                         </div>
                     </div>

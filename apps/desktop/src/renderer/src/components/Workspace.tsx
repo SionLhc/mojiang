@@ -101,7 +101,7 @@ export default function Workspace() {
     if (!book) {
         return (
             <>
-                <HomeView onOpenSettings={openSettings} />
+                <HomeView />
                 <SettingsDialog open={settingsOpen} onClose={closeSettings} />
                 <SearchDialog open={searchOpen} onClose={closeSearch} />
                 <QuickNoteDialog open={quickNoteOpen} onClose={closeQuickNote} />

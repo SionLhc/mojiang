@@ -45,12 +45,12 @@ export default function TitleBar() {
                 <button
                     type="button"
                     title="设置"
-                    className="flex h-6 w-6 items-center justify-center rounded text-ink-400 transition-colors hover:bg-ink-800 hover:text-ink-100"
+                    className="flex h-7 w-7 items-center justify-center rounded text-ink-400 transition-colors hover:bg-ink-800 hover:text-ink-100"
                     onClick={() => useAppStore.getState().openSettings()}
                 >
                     <svg
-                        width="14"
-                        height="14"
+                        width="18"
+                        height="18"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
