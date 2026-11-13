@@ -60,6 +60,57 @@ function renderInline(text: string): string {
 type ListType = 'ul' | 'ol' | null;
 
 /**
+ * 是不是一行表格内容
+ * @param line 行文本
+ * @returns 判定
+ */
+function isTableRow(line: string): boolean {
+    return /^\s*\|.*\|\s*$/.test(line);
+}
+
+/**
+ * 是不是表格分隔行，形如 |---|---|
+ * @param line 行文本
+ * @returns 判定
+ */
+function isTableSeparator(line: string): boolean {
+    return /^\s*\|[-:\s|]+\|\s*$/.test(line) && line.includes('-');
+}
+
+/**
+ * 拆一行表格
+ * @param line 行文本
+ * @returns 单元格数组
+ */
+function splitTableRow(line: string): string[] {
+    return line
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((cell) => cell.trim());
+}
+
+/**
+ * 拼表格 HTML
+ * @param headers 表头
+ * @param rows 数据行
+ * @returns HTML
+ */
+function buildTable(headers: string[], rows: string[][]): string {
+    const head = headers.map((cell) => `<th>${renderInline(cell)}</th>`).join('');
+    const body = rows
+        .map(
+            (row) =>
+                `<tr>${headers
+                    .map((_head, column) => `<td>${renderInline(row[column] ?? '')}</td>`)
+                    .join('')}</tr>`,
+        )
+        .join('');
+    return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+/**
  * 把 Markdown 渲染成 HTML
  * @param markdown 文档内容
  * @returns HTML 字符串
@@ -90,19 +141,26 @@ export function renderMarkdownToHtml(markdown: string): string {
         listType = null;
     };
 
-    for (const rawLine of lines) {
+    let codeLang = '';
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const rawLine = lines[index];
         const line = rawLine.replace(/\s+$/, '');
 
         // 代码块：内部内容原样保留，不做任何标记处理
-        if (line.trim().startsWith('```')) {
+        const fence = line.trim().match(/^```([\w+#.-]*)/);
+        if (fence) {
             if (inCodeBlock) {
-                blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+                const langAttr = codeLang.length > 0 ? ` data-lang="${codeLang}"` : '';
+                blocks.push(`<pre${langAttr}><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
                 codeLines = [];
+                codeLang = '';
                 inCodeBlock = false;
             } else {
                 flushParagraph();
                 flushList();
                 inCodeBlock = true;
+                codeLang = fence[1] ?? '';
             }
             continue;
         }
@@ -114,6 +172,22 @@ export function renderMarkdownToHtml(markdown: string): string {
         if (line.trim().length === 0) {
             flushParagraph();
             flushList();
+            continue;
+        }
+
+        // 表格：本行是 | 包起来的一行，且下一行是分隔行（|---|）
+        if (isTableRow(line) && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
+            flushParagraph();
+            flushList();
+            const headers = splitTableRow(line);
+            const rows: string[][] = [];
+            let cursor = index + 2;
+            while (cursor < lines.length && isTableRow(lines[cursor])) {
+                rows.push(splitTableRow(lines[cursor]));
+                cursor += 1;
+            }
+            blocks.push(buildTable(headers, rows));
+            index = cursor - 1;
             continue;
         }
 

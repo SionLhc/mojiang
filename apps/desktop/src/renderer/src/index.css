@@ -313,6 +313,52 @@ body {
     margin: 0.8em 0;
 }
 
+/* 代码块右上角标语言，技术文档里一眼看出是什么语言 */
+.md-preview pre[data-lang] {
+    position: relative;
+    padding-top: 1.7em;
+}
+
+.md-preview pre[data-lang]::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 0.35em;
+    right: 0.7em;
+    font-size: 0.68em;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-500));
+}
+
+/* 表格：技术文档里参数表、对比表都要用 */
+.md-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1em 0;
+    /* 列多的时候字号压小一点，避免数字和英文被拆行 */
+    font-size: 0.86em;
+    table-layout: auto;
+}
+
+.md-preview th,
+.md-preview td {
+    border: 1px solid rgb(var(--ink-800));
+    padding: 0.35em 0.5em;
+    text-align: left;
+    vertical-align: top;
+    word-break: keep-all;
+}
+
+.md-preview th {
+    background: rgb(var(--ink-850));
+    font-weight: 600;
+    color: rgb(var(--ink-200));
+}
+
+.md-preview tbody tr:nth-child(even) {
+    background: rgb(var(--ink-900) / 0.6);
+}
+
 .md-preview pre code {
     background: none;
     padding: 0;

@@ -377,7 +377,21 @@ export function runSelfTest(): SelfTestResult {
         '# 标题\n\n**粗体**和*斜体*，还有 `code`。\n\n> 引用\n\n- 一\n- 二\n\n---\n',
     );
     const escapedHtml = renderMarkdownToHtml('<script>alert(1)</script>');
+    // 技术文档要用的表格与代码块语言标签
+    const tableHtml = renderMarkdownToHtml(
+        '| 参数 | 类型 |\n|---|---|\n| level | number |\n| name | string |',
+    );
+    const codeHtml = renderMarkdownToHtml('```ts\nconst count = 1;\n```');
+    const docBlocksOk =
+        tableHtml.includes('<table>') &&
+        tableHtml.includes('<th>参数</th>') &&
+        tableHtml.includes('<td>level</td>') &&
+        tableHtml.includes('<td>string</td>') &&
+        codeHtml.includes('data-lang="ts"') &&
+        codeHtml.includes('const count = 1;');
+
     const markdownOk =
+        docBlocksOk &&
         previewHtml.includes('<h1>标题</h1>') &&
         previewHtml.includes('<strong>粗体</strong>') &&
         previewHtml.includes('<em>斜体</em>') &&
