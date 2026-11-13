@@ -4,7 +4,7 @@ import TitleBar from '@/components/TitleBar';
 import Toaster from '@/components/Toaster';
 import Workspace from '@/components/Workspace';
 import { applyAppearance } from '@/lib/appearance';
-import { useAppStore } from '@/store/useAppStore';
+import { hasRecentEdit, useAppStore } from '@/store/useAppStore';
 
 /**
  * 应用根组件
@@ -18,6 +18,16 @@ export default function App() {
     useEffect(() => {
         void bootstrap();
     }, [bootstrap]);
+
+    // 码字计时心跳：每分钟看一眼，最近 3 分钟编辑过就记 60 秒写作时长
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            if (hasRecentEdit()) {
+                void window.api.stats.record(0, 60);
+            }
+        }, 60 * 1000);
+        return () => window.clearInterval(timer);
+    }, []);
 
     // 设置一变就重新套用主题、字体、字号、缩放
     useEffect(() => {

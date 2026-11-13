@@ -216,8 +216,9 @@ export default function HomeView() {
 
                 {/* 已有项目 */}
                 <section className="mt-12">
-                    <div className="mb-3 flex items-center justify-between">
-                        <h2 className="text-[15px] font-medium text-ink-200">
+                    {/* 标题和搜索上下错开：搜索略靠上，避免和标题在同一水平线挤着 */}
+                    <div className="mb-3 flex items-start justify-between">
+                        <h2 className="mt-1 text-[15px] font-medium text-ink-200">
                             已有项目
                             <span className="ml-2 text-[13px] font-normal text-ink-500">
                                 {books.length} 个

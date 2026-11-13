@@ -10,6 +10,7 @@ import {
     activeHeadingIndex,
     answerQuestion,
     applyPatch,
+    computeStreak,
     assembleWritingPackage,
     buildChapterReport,
     buildLedgerPath,
@@ -31,6 +32,12 @@ import {
     extractDialogueForCharacter,
     extractHeadings,
     getProjectFeatures,
+    layoutFlow,
+    layoutMindmap,
+    parseFlow,
+    parseMindmap,
+    recordWritingDay,
+    scanSensitiveWords,
     lastTouchedChapter,
     parseCharacterMarkdown,
     parseFrontMatter,
@@ -120,6 +127,12 @@ export interface SelfTestResult {
     markdownOk: boolean;
     /** 大纲导航的标题提取与当前小节定位是否正常 */
     outlineNavOk: boolean;
+    /** 码字统计的累加与连续天数是否正确 */
+    statsOk: boolean;
+    /** 敏感词扫描的命中定位是否正确 */
+    sensitiveOk: boolean;
+    /** 图表解析与自动布局是否正常 */
+    diagramOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
@@ -429,6 +442,41 @@ export function runSelfTest(): SelfTestResult {
         activeHeadingIndex(outlineItems, 1) === 0 &&
         activeHeadingIndex([], 3) === -1;
 
+    // 新工具三件套：统计累加与连续天数、敏感词命中、图表解析布局
+    const statsBase = { dailyGoal: 2000, days: {} };
+    const statsAfter = recordWritingDay(recordWritingDay(statsBase, 500, 60), 300, 0);
+    const todayKey = Object.keys(statsAfter.days)[0];
+    const statsOk =
+        statsAfter.days[todayKey].chars === 800 &&
+        statsAfter.days[todayKey].seconds === 60 &&
+        computeStreak({ [todayKey]: { chars: 100, seconds: 0 } }) === 1 &&
+        computeStreak({}) === 0;
+
+    const sensitiveHits = scanSensitiveWords('可以加微信聊，或者转账付款。\n这行干净。', [
+        '加微信',
+        '转账',
+        '没有的词',
+    ]);
+    const sensitiveOk =
+        sensitiveHits.length === 2 &&
+        sensitiveHits[0].count + sensitiveHits[1].count === 2 &&
+        sensitiveHits.some((hit) => hit.word === '加微信' && hit.lines[0].line === 1);
+
+    const mindRoots = parseMindmap('- 根\n  - 子\n    - 孙\n  - 子二');
+    const mindLayout = layoutMindmap(mindRoots);
+    const flowGraph = parseFlow('(开始) -> 步骤[解析] : 走\n步骤[解析] -> 判断{行吗?}');
+    const flowLayout = layoutFlow(flowGraph);
+    const diagramOk =
+        mindRoots.length === 1 &&
+        mindRoots[0].children.length === 2 &&
+        mindLayout.boxes.length === 4 &&
+        mindLayout.boxes.every((box) => box.x >= 0 && box.y >= 0) &&
+        flowGraph.nodes.length === 3 &&
+        flowGraph.edges.length === 2 &&
+        flowGraph.edges[0].label === '走' &&
+        flowGraph.nodes.find((node) => node.id === '判断')?.shape === 'diamond' &&
+        flowLayout.boxes.length === 3;
+
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
     const mergedPrompt = composeSystemPrompt(basePrompt, '不要用形容词堆砌');
@@ -526,6 +574,9 @@ export function runSelfTest(): SelfTestResult {
         workspaceOk,
         markdownOk,
         outlineNavOk,
+        statsOk,
+        sensitiveOk,
+        diagramOk,
         promptOk,
         plotOk,
         importOk,

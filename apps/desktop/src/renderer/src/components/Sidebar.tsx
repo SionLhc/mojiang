@@ -19,7 +19,18 @@ const TOOL_VIEWS: Array<{
     label: string;
     /** 非小说项目用的名字，不填就沿用 label */
     generalLabel?: string;
-    feature: 'ledger' | 'foreshadow' | 'characters' | 'golden3' | 'writingPackage' | 'market' | 'plot';
+    feature:
+        | 'ledger'
+        | 'foreshadow'
+        | 'characters'
+        | 'golden3'
+        | 'writingPackage'
+        | 'market'
+        | 'plot'
+        | 'stats'
+        | 'materials'
+        | 'sensitive'
+        | 'diagram';
 }> = [
     { key: 'plot', label: '剧情编排', generalLabel: '画板', feature: 'plot' },
     { key: 'ledger', label: '账本', feature: 'ledger' },
@@ -28,6 +39,10 @@ const TOOL_VIEWS: Array<{
     { key: 'golden3', label: '三章诊断', feature: 'golden3' },
     { key: 'package', label: '开写包', feature: 'writingPackage' },
     { key: 'market', label: '市场调研', feature: 'market' },
+    { key: 'stats', label: '码字统计', feature: 'stats' },
+    { key: 'materials', label: '素材卡片', feature: 'materials' },
+    { key: 'sensitive', label: '敏感词', feature: 'sensitive' },
+    { key: 'diagram', label: '图表', generalLabel: '图表', feature: 'diagram' },
 ];
 
 /** 书库排序方式 */

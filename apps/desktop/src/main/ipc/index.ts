@@ -11,6 +11,7 @@ import { registerLlmIpc } from './llm';
 import { registerMarketIpc } from './market';
 import { registerPackageIpc } from './package';
 import { registerAppIpc, registerSettingsIpc } from './settings';
+import { registerStatsIpc } from './stats';
 import { registerWorkspaceIpc } from './workspace';
 
 /**
@@ -27,5 +28,6 @@ export function registerAllIpc(): void {
     registerExportIpc();
     registerImportIpc();
     registerWorkspaceIpc();
+    registerStatsIpc();
     registerAppIpc();
 }

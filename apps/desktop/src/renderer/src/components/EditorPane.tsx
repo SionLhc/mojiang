@@ -1,13 +1,17 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { activeHeadingIndex, extractHeadings, getProjectFeatures, renderMarkdownToHtml } from '@mojiang/core';
 import CharacterView from '@/components/CharacterView';
+import DiagramView from '@/components/DiagramView';
 import ForeshadowView from '@/components/ForeshadowView';
 import Golden3View from '@/components/Golden3View';
 import LedgerView from '@/components/LedgerView';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor';
 import MarketView from '@/components/MarketView';
+import MaterialsView from '@/components/MaterialsView';
 import PackageView from '@/components/PackageView';
 import PlotView from '@/components/PlotView';
+import SensitiveView from '@/components/SensitiveView';
+import StatsView from '@/components/StatsView';
 import VersionDialog from '@/components/VersionDialog';
 import { formatCharCount } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
@@ -155,6 +159,18 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     }
     if (activeView === 'plot') {
         return <PlotView />;
+    }
+    if (activeView === 'stats') {
+        return <StatsView />;
+    }
+    if (activeView === 'materials') {
+        return <MaterialsView />;
+    }
+    if (activeView === 'sensitive') {
+        return <SensitiveView />;
+    }
+    if (activeView === 'diagram') {
+        return <DiagramView />;
     }
 
     if (!chapterId) {

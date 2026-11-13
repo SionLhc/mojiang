@@ -30,7 +30,23 @@ export type WorkspaceView =
     | 'golden3'
     | 'package'
     | 'market'
-    | 'plot';
+    | 'plot'
+    | 'stats'
+    | 'materials'
+    | 'sensitive'
+    | 'diagram';
+
+/** 最近一次编辑正文的时间戳，给码字计时用 */
+let lastEditAt = 0;
+
+/**
+ * 最近 3 分钟内有没有编辑过正文
+ * 计时心跳用它判断这一分钟算不算"在写作"
+ * @returns 是否在写
+ */
+export function hasRecentEdit(): boolean {
+    return Date.now() - lastEditAt < 3 * 60 * 1000;
+}
 
 /** 一条提示 */
 export interface Toast {
@@ -539,17 +555,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
     },
 
     setContent: (text) => {
+        // 记一下最近编辑时间，给码字计时心跳判断"还在不在写"
+        lastEditAt = Date.now();
         set({ content: text });
     },
 
     save: async () => {
-        const { book, section, chapterId, content, saving } = get();
+        const { book, section, chapterId, content, savedContent, saving } = get();
         if (!book || !chapterId || saving) {
             return;
         }
         set({ saving: true });
         try {
             await window.api.chapter.write(book.id, section, chapterId, content);
+            // 码字统计：只记新增字数，删改不倒扣
+            const addedChars = Math.max(
+                0,
+                content.replace(/\s/g, '').length - savedContent.replace(/\s/g, '').length,
+            );
+            if (addedChars > 0) {
+                void window.api.stats.record(addedChars, 0);
+            }
             set({ savedContent: content });
             const chapters = await window.api.chapter.list(book.id, section);
             set({ chapters });

@@ -10,6 +10,7 @@ import type {
     LedgerFile,
     PlatformSnapshot,
     WritingPackage,
+    WritingStats,
 } from '@mojiang/core';
 import type { ChatMessage, PriceRule, ProviderId } from '@mojiang/llm';
 import type {
@@ -209,6 +210,14 @@ export interface MoJiangApi {
         read(bookId: string): Promise<import('@mojiang/core').PlotGraph>;
         /** 保存剧情图 */
         write(bookId: string, graph: import('@mojiang/core').PlotGraph): Promise<void>;
+    };
+    stats: {
+        /** 读码字统计 */
+        read(): Promise<WritingStats>;
+        /** 记一笔写作增量 */
+        record(deltaChars: number, deltaSeconds: number): Promise<WritingStats>;
+        /** 设置每日字数目标 */
+        setGoal(goal: number): Promise<WritingStats>;
     };
     ui: {
         /** 设置界面缩放，超出 0.8-1.6 会被夹住 */

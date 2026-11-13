@@ -111,6 +111,12 @@ const api: MoJiangApi = {
         read: (bookId: string) => ipcRenderer.invoke('plot:read', bookId),
         write: (bookId: string, graph: unknown) => ipcRenderer.invoke('plot:write', bookId, graph),
     },
+    stats: {
+        read: () => ipcRenderer.invoke('stats:read'),
+        record: (deltaChars: number, deltaSeconds: number) =>
+            ipcRenderer.invoke('stats:record', deltaChars, deltaSeconds),
+        setGoal: (goal: number) => ipcRenderer.invoke('stats:setGoal', goal),
+    },
     ui: {
         setZoom: (factor: number) => {
             // 夹到合理区间，防止误传把界面缩成一条缝

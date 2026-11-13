@@ -50,6 +50,14 @@ export interface ProjectFeature {
     market: boolean;
     /** 剧情编排画布 */
     plot: boolean;
+    /** 码字统计 */
+    stats: boolean;
+    /** 素材卡片盒 */
+    materials: boolean;
+    /** 敏感词检查 */
+    sensitive: boolean;
+    /** 流程图 / 思维导图 */
+    diagram: boolean;
     /** 内容根目录的物理名字 */
     contentDir: string;
     /** 界面上一级内容的叫法，如"正文"/"文档" */
@@ -73,6 +81,11 @@ const NOVEL_FEATURE: ProjectFeature = {
     outline8: true,
     market: true,
     plot: true,
+    // 新四件是通用工具，写小说、记笔记、写文档都用得上
+    stats: true,
+    materials: true,
+    sensitive: true,
+    diagram: true,
     contentDir: '正文',
     contentLabel: '正文',
     createLabel: '新建章节',
@@ -92,6 +105,11 @@ const NOTES_FEATURE: ProjectFeature = {
     market: false,
     // 画板是通用能力，笔记和工作文档也能用来梳理结构
     plot: true,
+    // 新四件是通用工具：统计、素材、敏感词、图表都跟项目类型无关
+    stats: true,
+    materials: true,
+    sensitive: true,
+    diagram: true,
     contentDir: '文档',
     contentLabel: '文档',
     createLabel: '新建文档',
