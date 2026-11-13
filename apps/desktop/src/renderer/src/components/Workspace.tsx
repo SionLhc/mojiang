@@ -118,7 +118,8 @@ export default function Workspace() {
                             setFocusMode((value) => !value);
                         }}
                     />
-                    {!focusMode && <RightPanel />}
+                    {/* 没打开项目时不显示右栏，书库页留着体检面板没意义 */}
+                    {!focusMode && book && <RightPanel />}
                 </>
             )}
 

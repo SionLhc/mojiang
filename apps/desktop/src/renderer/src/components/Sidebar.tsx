@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { PROJECT_KINDS, getProjectFeatures, type ProjectKind } from '@mojiang/core';
 import DocumentTree from '@/components/DocumentTree';
-import { formatCharCount, formatTime } from '@/lib/format';
+import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { collectTags, filterTreeByTag } from '@/lib/tree';
 import { useAppStore, type WorkspaceView } from '@/store/useAppStore';
 import type { ChapterSection } from '@shared/types';
@@ -30,6 +30,9 @@ const TOOL_VIEWS: Array<{
     { key: 'market', label: '市场调研', feature: 'market' },
 ];
 
+/** 书库排序方式 */
+type BookSort = 'recent' | 'chars' | 'title';
+
 /** 类型徽章的配色 */
 const KIND_TONE: Record<ProjectKind, string> = {
     novel: 'bg-jade-600/20 text-jade-400',
@@ -56,6 +59,8 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
     const closeBook = useAppStore((state) => state.closeBook);
     const createBook = useAppStore((state) => state.createBook);
     const removeBook = useAppStore((state) => state.removeBook);
+    const refreshBooks = useAppStore((state) => state.refreshBooks);
+    const pushToast = useAppStore((state) => state.pushToast);
     const setSection = useAppStore((state) => state.setSection);
     const openChapter = useAppStore((state) => state.openChapter);
     const createChapter = useAppStore((state) => state.createChapter);
@@ -74,9 +79,28 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
     const [folderInputOpen, setFolderInputOpen] = useState(false);
     const [folderName, setFolderName] = useState('');
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+    const [bookQuery, setBookQuery] = useState('');
+    const [bookSort, setBookSort] = useState<BookSort>('recent');
 
     const features = getProjectFeatures(book?.kind);
     const dirty = content !== savedContent;
+
+    // 书库列表：先按关键词过滤，再按选定方式排序
+    const visibleBooks = useMemo(() => {
+        const keyword = bookQuery.trim().toLowerCase();
+        const filtered = keyword.length
+            ? books.filter((item) => item.title.toLowerCase().includes(keyword))
+            : books;
+        const sorted = [...filtered];
+        if (bookSort === 'chars') {
+            sorted.sort((left, right) => right.charCount - left.charCount);
+        } else if (bookSort === 'title') {
+            sorted.sort((left, right) => left.title.localeCompare(right.title, 'zh'));
+        } else {
+            sorted.sort((left, right) => (right.lastEditedAt ?? '').localeCompare(left.lastEditedAt ?? ''));
+        }
+        return sorted;
+    }, [books, bookQuery, bookSort]);
 
     const tags = useMemo(() => collectTags(tree), [tree]);
     const visibleTree = useMemo(() => filterTreeByTag(tree, activeTag), [tree, activeTag]);
@@ -101,6 +125,34 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
         setNewTitle('');
         setNewGenre('');
         setCreating(false);
+    }
+
+    /**
+     * 导入已有稿件
+     * 一个文件 = 一本新书，主进程按章节标题自动拆分
+     */
+    async function handleImport(): Promise<void> {
+        try {
+            const result = await window.api.importer.pick();
+            if (result.canceled || result.results.length === 0) {
+                return;
+            }
+            await refreshBooks();
+            const succeeded = result.results.filter((item) => item.ok);
+            const failed = result.results.filter((item) => !item.ok);
+            if (succeeded.length > 0) {
+                const chapters = succeeded.reduce((sum, item) => sum + item.chapters, 0);
+                pushToast('success', `已导入 ${succeeded.length} 本，共 ${chapters} 章`);
+            }
+            if (failed.length > 0) {
+                pushToast(
+                    'error',
+                    `${failed.length} 个文件没导进来：${failed[0].error ?? '未知原因'}`,
+                );
+            }
+        } catch (error) {
+            pushToast('error', errorMessage(error));
+        }
     }
 
     /**
@@ -188,14 +240,57 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
             <aside className="flex w-60 shrink-0 flex-col border-r border-ink-800 bg-ink-900">
                 <div className="flex h-11 items-center justify-between border-b border-ink-800 px-3">
                     <span className="text-[14px] font-semibold tracking-wide text-ink-300">书库</span>
-                    <button
-                        type="button"
-                        className="btn-ghost h-6 px-2 text-[13px]"
-                        onClick={() => setCreating((value) => !value)}
-                    >
-                        + 新建
-                    </button>
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            className="btn-ghost h-6 px-2 text-[13px]"
+                            onClick={() => void handleImport()}
+                            title="导入 TXT / Markdown 稿件，按章节标题自动拆分"
+                        >
+                            导入
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-ghost h-6 px-2 text-[13px]"
+                            onClick={() => setCreating((value) => !value)}
+                        >
+                            + 新建
+                        </button>
+                    </div>
                 </div>
+
+                {books.length > 0 && (
+                    <div className="space-y-1.5 border-b border-ink-800 p-2">
+                        <input
+                            className="field h-7 text-[13px]"
+                            placeholder="搜索名称"
+                            value={bookQuery}
+                            onChange={(event) => setBookQuery(event.target.value)}
+                        />
+                        <div className="flex gap-1">
+                            {(
+                                [
+                                    { key: 'recent', label: '最近' },
+                                    { key: 'chars', label: '字数' },
+                                    { key: 'title', label: '名称' },
+                                ] as Array<{ key: BookSort; label: string }>
+                            ).map((item) => (
+                                <button
+                                    type="button"
+                                    key={item.key}
+                                    onClick={() => setBookSort(item.key)}
+                                    className={`flex-1 rounded px-1 py-0.5 text-[13px] ${
+                                        bookSort === item.key
+                                            ? 'bg-jade-500/15 text-jade-400'
+                                            : 'text-ink-500 hover:bg-ink-800 hover:text-ink-300'
+                                    }`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {creating && (
                     <div className="space-y-2 border-b border-ink-800 p-3">
@@ -254,11 +349,15 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                         <p className="px-2 py-6 text-center text-[13px] leading-relaxed text-ink-500">
                             还没有项目。
                             <br />
-                            点右上角「+ 新建」开始。
+                            点右上角「+ 新建」或「导入」开始。
+                        </p>
+                    ) : visibleBooks.length === 0 ? (
+                        <p className="px-2 py-6 text-center text-[13px] leading-relaxed text-ink-500">
+                            没有匹配「{bookQuery}」的项目
                         </p>
                     ) : (
                         <ul className="space-y-1">
-                            {books.map((item) => {
+                            {visibleBooks.map((item) => {
                                 const kind = item.kind ?? 'novel';
                                 return (
                                     <li key={item.id} className="group relative">

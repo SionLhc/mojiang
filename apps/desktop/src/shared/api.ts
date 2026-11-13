@@ -22,6 +22,7 @@ import type {
     CreateBookInput,
     ExportFormat,
     ExportResult,
+    ImportResult,
     LlmChatParams,
     LlmStreamEvent,
     ProviderModels,
@@ -173,6 +174,10 @@ export interface MoJiangApi {
     export: {
         /** 导出整本书，路径由用户在系统对话框里选 */
         book(bookId: string, format: ExportFormat): Promise<ExportResult>;
+    };
+    importer: {
+        /** 选文件并导入，一个文件 = 一本新书，按章节标题自动拆分 */
+        pick(): Promise<{ canceled: boolean; results: ImportResult[] }>;
     };
     market: {
         /** 抓取各平台榜单，失败的平台会在结果里标 degraded */

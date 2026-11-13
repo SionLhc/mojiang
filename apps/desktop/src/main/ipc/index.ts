@@ -5,6 +5,7 @@
 
 import { registerDataIpc } from './data';
 import { registerExportIpc } from './export';
+import { registerImportIpc } from './import';
 import { registerContentIpc, registerLibraryIpc } from './library';
 import { registerLlmIpc } from './llm';
 import { registerMarketIpc } from './market';
@@ -24,6 +25,7 @@ export function registerAllIpc(): void {
     registerPackageIpc();
     registerMarketIpc();
     registerExportIpc();
+    registerImportIpc();
     registerWorkspaceIpc();
     registerAppIpc();
 }

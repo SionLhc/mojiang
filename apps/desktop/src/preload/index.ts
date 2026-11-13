@@ -87,6 +87,9 @@ const api: MoJiangApi = {
         book: (bookId: string, format: ExportFormat) =>
             ipcRenderer.invoke('export:book', bookId, format),
     },
+    importer: {
+        pick: () => ipcRenderer.invoke('import:pick'),
+    },
     market: {
         fetch: (bookId: string) => ipcRenderer.invoke('market:fetch', bookId),
         saveReport: (bookId: string, markdown: string) =>

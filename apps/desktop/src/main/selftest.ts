@@ -47,6 +47,7 @@ import {
     type LedgerFile,
 } from '@mojiang/core';
 import { writeJsonFile, writeTextFile } from './services/content';
+import { splitChapters } from './services/import';
 import { buildDocx, buildEpub, buildPlainText, markdownToBlocks } from './services/export-format';
 import { createBook } from './services/library';
 import { buildWritingPackage } from './services/package-builder';
@@ -118,6 +119,10 @@ export interface SelfTestResult {
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
     plotOk: boolean;
+    /** 稿件导入的分章是否正确 */
+    importOk: boolean;
+    /** 分章结果，便于排查 */
+    importChapters: number;
 }
 
 /** 开写包往返测试的结果 */
@@ -413,6 +418,20 @@ export function runSelfTest(): SelfTestResult {
         diagnosis.findings[0]?.nodeIds.length === 1 &&
         diagnosis.findings[0]?.nodeIds[0] === 'n1';
 
+    // 导入分章：中文章节、阿拉伯数字章节、Markdown 标题都要认
+    const importedChapters = splitChapters(
+        ['第一章 开端', '正文一。', '', '第二章 转折', '正文二。', '', '第3章 高潮', '正文三。'].join('\n'),
+        false,
+    );
+    const mdChapters = splitChapters('# 前言\n说明\n\n# 第二节\n内容', true);
+    const importOk =
+        importedChapters.length === 3 &&
+        importedChapters[0].title === '第一章 开端' &&
+        importedChapters[2].title === '第3章 高潮' &&
+        importedChapters[2].content.includes('正文三') &&
+        mdChapters.length === 2 &&
+        mdChapters[0].title === '前言';
+
     return {
         charCount: metrics.charCount,
         lexiconScore: lexicon.score,
@@ -454,5 +473,7 @@ export function runSelfTest(): SelfTestResult {
         markdownOk,
         promptOk,
         plotOk,
+        importOk,
+        importChapters: importedChapters.length,
     };
 }

@@ -68,6 +68,21 @@ export interface QuickNoteResult {
     title: string;
 }
 
+/** 导入一份稿件的解析结果 */
+export interface ImportResult {
+    ok: boolean;
+    /** 书名 */
+    title: string;
+    /** 来源文件名 */
+    fileName: string;
+    /** 切出多少章 */
+    chapters: number;
+    /** 总字数 */
+    charCount: number;
+    /** 失败原因 */
+    error?: string;
+}
+
 /** 书列表里显示的一行 */
 export interface BookSummary extends BookMeta {
     chapterCount: number;
