@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { composeSystemPrompt } from '@mojiang/core';
+import { composeSystemPrompt, splitProseBlocks } from '@mojiang/core';
 import type { ChatMessage } from '@mojiang/llm';
+import Modal from '@/components/Modal';
 import { errorMessage, formatCny } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -48,6 +49,11 @@ export default function ChatPanel() {
     const [draft, setDraft] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [withChapter, setWithChapter] = useState(true);
+
+    // 「用到正文」的分段选择：null 表示弹窗关闭
+    const [insertBlocks, setInsertBlocks] = useState<string[] | null>(null);
+    const [picked, setPicked] = useState<Set<number>>(new Set());
+    const appendToChapter = useAppStore((state) => state.appendToChapter);
     const currentRequestRef = useRef<string | null>(null);
     const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -110,6 +116,50 @@ export default function ChatPanel() {
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [items]);
+
+    /**
+     * 打开分段选择
+     * @param text AI 回复全文
+     */
+    function openInsert(text: string): void {
+        const blocks = splitProseBlocks(text);
+        if (blocks.length === 0) {
+            return;
+        }
+        setInsertBlocks(blocks);
+        setPicked(new Set(blocks.map((_block, index) => index)));
+    }
+
+    /**
+     * 勾选/取消某一段
+     * @param index 段号
+     */
+    function toggleBlock(index: number): void {
+        setPicked((previous) => {
+            const next = new Set(previous);
+            if (next.has(index)) {
+                next.delete(index);
+            } else {
+                next.add(index);
+            }
+            return next;
+        });
+    }
+
+    /**
+     * 把选中的段落拼起来插到本章末尾
+     */
+    async function confirmInsert(): Promise<void> {
+        if (!insertBlocks || picked.size === 0) {
+            return;
+        }
+        const text = [...picked]
+            .sort((left, right) => left - right)
+            .map((index) => insertBlocks[index])
+            .join('\n\n');
+        await appendToChapter(text);
+        setInsertBlocks(null);
+    }
 
     /**
      * 组装发给模型的消息
@@ -311,6 +361,32 @@ export default function ChatPanel() {
                                     本次 {formatCny(item.costCny)}
                                 </p>
                             )}
+
+                            {/* 生成完了才给「用到正文」，太短的回复（比如一句回答）不弹入口 */}
+                            {item.role === 'assistant' &&
+                                !item.pending &&
+                                !item.error &&
+                                item.content.trim().length > 80 && (
+                                    <div className="mt-1.5 flex items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
+                                            onClick={() => openInsert(item.content)}
+                                        >
+                                            用到正文
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="rounded px-2 py-0.5 text-[13px] text-ink-500 transition-colors hover:bg-ink-800 hover:text-ink-300"
+                                            onClick={() => {
+                                                void navigator.clipboard.writeText(item.content);
+                                                pushToast('success', '已复制');
+                                            }}
+                                        >
+                                            复制
+                                        </button>
+                                    </div>
+                                )}
                         </div>
                     ))
                 )}
@@ -354,6 +430,66 @@ export default function ChatPanel() {
                     )}
                 </div>
             </div>
+
+            {/* 分段选用：默认全选，取消勾选就不要那一段 */}
+            <Modal
+                open={insertBlocks !== null}
+                title="把段落插入正文"
+                subtitle={`共 ${insertBlocks?.length ?? 0} 段，取消勾选不需要的`}
+                onClose={() => setInsertBlocks(null)}
+                widthClass="max-w-2xl"
+                footer={
+                    <>
+                        <span className="mr-auto text-[13px] text-ink-500">
+                            已选 {picked.size} 段
+                        </span>
+                        <button
+                            type="button"
+                            className="btn-ghost"
+                            onClick={() =>
+                                setPicked(new Set((insertBlocks ?? []).map((_block, index) => index)))
+                            }
+                        >
+                            全选
+                        </button>
+                        <button type="button" className="btn-ghost" onClick={() => setPicked(new Set())}>
+                            全不选
+                        </button>
+                        <button type="button" className="btn-primary" onClick={() => void confirmInsert()}>
+                            插入到本章末尾
+                        </button>
+                    </>
+                }
+            >
+                <div className="max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+                    {(insertBlocks ?? []).map((block, index) => (
+                        <label
+                            key={index}
+                            className={`flex cursor-pointer gap-2 rounded-md border p-2 transition-colors ${
+                                picked.has(index)
+                                    ? 'border-jade-600 bg-jade-500/5'
+                                    : 'border-ink-800 hover:border-ink-700'
+                            }`}
+                        >
+                            <input
+                                type="checkbox"
+                                className="mt-1 shrink-0"
+                                checked={picked.has(index)}
+                                onChange={() => toggleBlock(index)}
+                                style={{ accentColor: 'rgb(var(--jade-500))' }}
+                            />
+                            <span className="min-w-0 flex-1">
+                                <span className="mb-0.5 block text-[12px] text-ink-600">
+                                    第 {index + 1} 段 · {block.replace(/\s/g, '').length} 字
+                                </span>
+                                <span className="block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-200">
+                                    {block}
+                                </span>
+                            </span>
+                        </label>
+                    ))}
+                </div>
+            </Modal>
         </div>
     );
 }

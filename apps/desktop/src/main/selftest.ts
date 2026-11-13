@@ -46,6 +46,7 @@ import {
     writeTags,
     type LedgerFile,
 } from '@mojiang/core';
+import { splitProseBlocks } from '@mojiang/core';
 import { writeJsonFile, writeTextFile } from './services/content';
 import { splitChapters } from './services/import';
 import { buildDocx, buildEpub, buildPlainText, markdownToBlocks } from './services/export-format';
@@ -123,6 +124,8 @@ export interface SelfTestResult {
     importOk: boolean;
     /** 分章结果，便于排查 */
     importChapters: number;
+    /** AI 回复的段落切分是否正确 */
+    blocksOk: boolean;
 }
 
 /** 开写包往返测试的结果 */
@@ -432,6 +435,16 @@ export function runSelfTest(): SelfTestResult {
         mdChapters.length === 2 &&
         mdChapters[0].title === '前言';
 
+    // 段落切分：标准空行分段、一行一段、混合空白都要正确处理
+    const blankLineBlocks = splitProseBlocks('第一段。\n\n第二段。\n\n\n第三段。');
+    const singleLineBlocks = splitProseBlocks('第一段。\n第二段。\n第三段。');
+    const blocksOk =
+        blankLineBlocks.length === 3 &&
+        blankLineBlocks[1] === '第二段。' &&
+        singleLineBlocks.length === 3 &&
+        singleLineBlocks[0] === '第一段。' &&
+        splitProseBlocks('   \n\n  ').length === 0;
+
     return {
         charCount: metrics.charCount,
         lexiconScore: lexicon.score,
@@ -475,5 +488,6 @@ export function runSelfTest(): SelfTestResult {
         plotOk,
         importOk,
         importChapters: importedChapters.length,
+        blocksOk,
     };
 }

@@ -101,6 +101,8 @@ interface AppStore {
     saveForeshadow: (file: ForeshadowFile) => Promise<void>;
     setPendingPrompt: (text: string | null) => void;
     restoreSnapshot: (fileName: string) => Promise<void>;
+    /** 把一段文字追加到当前文档末尾并保存 */
+    appendToChapter: (text: string) => Promise<void>;
     refreshBooks: () => Promise<void>;
     createBook: (input: CreateBookInput) => Promise<void>;
     removeBook: (bookId: string) => Promise<void>;
@@ -274,6 +276,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     setPendingPrompt: (text) => {
         set({ pendingPrompt: text });
+    },
+
+    appendToChapter: async (text) => {
+        const { book, chapterId, content } = get();
+        if (!book || !chapterId) {
+            get().pushToast('info', '先在左边打开一篇文档再接');
+            return;
+        }
+        const trimmed = text.trim();
+        if (trimmed.length === 0) {
+            return;
+        }
+        // 追加到末尾，保留原有段落间距
+        const next = `${content.replace(/\s+$/, '')}\n\n${trimmed}\n`;
+        set({ content: next, activeView: 'chapter' });
+        await get().save();
+        get().pushToast('success', '已追加到本章末尾');
     },
 
     restoreSnapshot: async (fileName) => {

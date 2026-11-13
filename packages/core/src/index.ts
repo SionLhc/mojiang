@@ -9,6 +9,7 @@ export * from './text/metrics';
 export * from './text/diff';
 export * from './text/frontmatter';
 export * from './text/markdown';
+export * from './text/blocks';
 export * from './prompt';
 export * from './plot';
 export * from './project';
