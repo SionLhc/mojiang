@@ -75,6 +75,8 @@ interface AppStore {
     searching: boolean;
     /** 快速记录弹窗 */
     quickNoteOpen: boolean;
+    /** 设置弹窗（放全局，顶栏和侧栏都能打开） */
+    settingsOpen: boolean;
     /** 当前按哪个标签过滤，null 表示不筛 */
     activeTag: string | null;
 
@@ -88,6 +90,8 @@ interface AppStore {
     openQuickNote: () => void;
     closeQuickNote: () => void;
     submitQuickNote: (text: string) => Promise<void>;
+    openSettings: () => void;
+    closeSettings: () => void;
     setActiveTag: (tag: string | null) => void;
     /** 从搜索结果跳到某个文档 */
     jumpToDocument: (
@@ -155,6 +159,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     searchResult: null,
     searching: false,
     quickNoteOpen: false,
+    settingsOpen: false,
     activeTag: null,
 
     refreshTree: async () => {
@@ -233,6 +238,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     closeQuickNote: () => {
         set({ quickNoteOpen: false });
+    },
+
+    openSettings: () => {
+        set({ settingsOpen: true });
+    },
+
+    closeSettings: () => {
+        set({ settingsOpen: false });
     },
 
     submitQuickNote: async (text) => {

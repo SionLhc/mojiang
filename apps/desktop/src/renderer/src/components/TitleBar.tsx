@@ -44,6 +44,27 @@ export default function TitleBar() {
             <div className="no-drag flex items-center gap-3">
                 <button
                     type="button"
+                    title="设置"
+                    className="flex h-6 w-6 items-center justify-center rounded text-ink-400 transition-colors hover:bg-ink-800 hover:text-ink-100"
+                    onClick={() => useAppStore.getState().openSettings()}
+                >
+                    <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.9"
+                        strokeLinecap="round"
+                    >
+                        <path d="M4 7h16M4 12h16M4 17h16" />
+                        <circle cx="9" cy="7" r="2.2" fill="currentColor" stroke="none" />
+                        <circle cx="15" cy="12" r="2.2" fill="currentColor" stroke="none" />
+                        <circle cx="8" cy="17" r="2.2" fill="currentColor" stroke="none" />
+                    </svg>
+                </button>
+                <button
+                    type="button"
                     title="全局搜索 Ctrl+Shift+F"
                     className="flex h-6 items-center gap-1 rounded px-2 text-[13px] text-ink-400 hover:bg-ink-800 hover:text-ink-100"
                     onClick={() => useAppStore.getState().openSearch()}

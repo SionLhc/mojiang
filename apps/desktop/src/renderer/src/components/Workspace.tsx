@@ -40,7 +40,9 @@ export default function Workspace() {
 
     const [focusMode, setFocusMode] = useState(false);
     const [outlineOpen, setOutlineOpen] = useState(false);
-    const [settingsOpen, setSettingsOpen] = useState(false);
+    const settingsOpen = useAppStore((state) => state.settingsOpen);
+    const openSettings = useAppStore((state) => state.openSettings);
+    const closeSettings = useAppStore((state) => state.closeSettings);
     const [exportOpen, setExportOpen] = useState(false);
 
     // 自动保存：停下来 2.5 秒就落盘，减少手动 Ctrl+S
@@ -99,8 +101,8 @@ export default function Workspace() {
     if (!book) {
         return (
             <>
-                <HomeView onOpenSettings={() => setSettingsOpen(true)} />
-                <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+                <HomeView onOpenSettings={openSettings} />
+                <SettingsDialog open={settingsOpen} onClose={closeSettings} />
                 <SearchDialog open={searchOpen} onClose={closeSearch} />
                 <QuickNoteDialog open={quickNoteOpen} onClose={closeQuickNote} />
             </>
@@ -112,7 +114,7 @@ export default function Workspace() {
             {!focusMode && (
                 <Sidebar
                     onOpenOutline={() => setOutlineOpen(true)}
-                    onOpenSettings={() => setSettingsOpen(true)}
+                    onOpenSettings={openSettings}
                     onOpenExport={() => setExportOpen(true)}
                 />
             )}
@@ -137,7 +139,7 @@ export default function Workspace() {
             )}
 
             <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} />
-            <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            <SettingsDialog open={settingsOpen} onClose={closeSettings} />
             <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
             <SearchDialog open={searchOpen} onClose={closeSearch} />
             <QuickNoteDialog open={quickNoteOpen} onClose={closeQuickNote} />

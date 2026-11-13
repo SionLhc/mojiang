@@ -24,6 +24,9 @@ export interface PriceRule {
 export const DEFAULT_PRICES: PriceRule[] = [
     { providerId: 'deepseek', modelPrefix: 'deepseek-chat', inputPerMillion: 2, outputPerMillion: 8 },
     { providerId: 'deepseek', modelPrefix: 'deepseek-reasoner', inputPerMillion: 4, outputPerMillion: 16 },
+    // 兜底：DeepSeek 出新模型（如 v4 系列）时价格表里还没有，
+    // 按 chat 档估算。宁可估高，也不能返回 0 —— 显示 ¥0 会让预算拦截失效。
+    { providerId: 'deepseek', modelPrefix: '', inputPerMillion: 2, outputPerMillion: 8 },
     { providerId: 'openai', modelPrefix: 'gpt-4o-mini', inputPerMillion: 1.1, outputPerMillion: 4.3 },
     { providerId: 'openai', modelPrefix: 'gpt-4o', inputPerMillion: 18, outputPerMillion: 72 },
     { providerId: 'anthropic', modelPrefix: 'claude-3-5-haiku', inputPerMillion: 5.8, outputPerMillion: 29 },
