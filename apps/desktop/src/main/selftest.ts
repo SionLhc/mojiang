@@ -23,6 +23,7 @@ import {
     createPlotNode,
     autoArrangeMindBoard,
     layoutToMindBoard,
+    mergeLayoutToMindBoard,
     mindBoardToOutline,
     parsePlotDiagnosis,
     serializePlotForPrompt,
@@ -139,6 +140,8 @@ export interface SelfTestResult {
     diagramOk: boolean;
     /** 画板与文本源互转是否正常 */
     outlineOk: boolean;
+    /** 画板增量同步是否只动变化部分 */
+    mergeOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
@@ -522,6 +525,37 @@ export function runSelfTest(): SelfTestResult {
         flowBack.edges.length === 1 &&
         flowBack.edges[0].label === '是';
 
+    // 增量同步：同名/同序配对保 id 保位置，新增进父旁，多余的删
+    const mergedBoard = mergeLayoutToMindBoard(
+        {
+            nodes: [
+                { id: 'b1', title: '根', depth: 0, x: 10, y: 10 },
+                { id: 'b2', title: '旧的', depth: 1, x: 300, y: 40 },
+            ],
+            edges: [{ id: 'e1', source: 'b1', target: 'b2' }],
+            updatedAt: '',
+        },
+        layoutMindmap(parseMindmap('- 根\n  - 改名了\n  - 新来的')),
+    );
+    const mergedRoot = mergedBoard.nodes.find((node) => node.title === '根');
+    const renamed = mergedBoard.nodes.find((node) => node.title === '改名了');
+    const added = mergedBoard.nodes.find((node) => node.title === '新来的');
+    const mergeOk =
+        mergedBoard.nodes.length === 3 &&
+        // 同名节点：id 和坐标都不动
+        mergedRoot?.id === 'b1' &&
+        mergedRoot.x === 10 &&
+        mergedRoot.y === 10 &&
+        // 改名的按同父顺序配对上旧节点，位置原地不动
+        renamed?.id === 'b2' &&
+        renamed.x === 300 &&
+        renamed.y === 40 &&
+        // 真新增的落在父节点右边
+        added !== undefined &&
+        added.x === 330 &&
+        // 连线按新结构重建，两条
+        mergedBoard.edges.length === 2;
+
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
     const mergedPrompt = composeSystemPrompt(basePrompt, '不要用形容词堆砌');
@@ -623,6 +657,7 @@ export function runSelfTest(): SelfTestResult {
         sensitiveOk,
         diagramOk: diagramOk && diagramBoardOk,
         outlineOk,
+        mergeOk,
         promptOk,
         plotOk,
         importOk,

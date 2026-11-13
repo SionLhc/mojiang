@@ -116,7 +116,8 @@ export function layoutToMindBoard(
             title: box.label,
             depth: box.depth,
             x: Math.round(box.x + offset.x),
-            y: Math.round(box.y + offset.y),
+            // 画板卡片比布局盒子高（徽标+标题两行），纵向拉开防挤叠
+            y: Math.round(box.y * 1.3 + offset.y),
         };
     });
 
@@ -206,6 +207,109 @@ export function autoArrangeMindBoard(graph: MindBoardGraph): MindBoardGraph {
         edges: graph.edges.map((edge) => ({ ...edge })),
         updatedAt: new Date().toISOString(),
     };
+}
+
+/**
+ * 增量应用布局到画板：只动变化的节点，不整板重排、不还原手动排版
+ * 配对顺序：①同标题（同名按出现顺序一次性消费）②剩余的新旧节点按层级+位置顺序配对（改名的原地不动）
+ * 配对命中的旧节点保留 id 和坐标，标题与层级用文本的；
+ * 没配上的新节点放在已配对父节点旁边，没父的用布局坐标；
+ * 没配上的旧节点删除。
+ * @param existing 现有画板
+ * @param layout 文本解析出的布局
+ * @returns 更新后的完整画板（不改原对象）
+ */
+export function mergeLayoutToMindBoard(
+    existing: MindBoardGraph,
+    layout: DiagramLayout,
+): MindBoardGraph {
+    // 新图的父子关系，流程图取第一条入边的源当父
+    const parentOf = new Map<string, string>();
+    for (const edge of layout.edges) {
+        if (!parentOf.has(edge.to) && edge.from !== edge.to) {
+            parentOf.set(edge.to, edge.from);
+        }
+    }
+
+    // 轮 1：同标题配对，每个旧节点只配一次
+    const unmatchedOld = [...existing.nodes];
+    const pairedOld = new Map<string, MindBoardNode>();
+    for (const box of layout.boxes) {
+        const index = unmatchedOld.findIndex((node) => node.title === box.label);
+        if (index >= 0) {
+            pairedOld.set(box.id, unmatchedOld[index]);
+            unmatchedOld.splice(index, 1);
+        }
+    }
+
+    // 轮 2：剩余新旧节点按层级+位置顺序配对，改名的节点原地不动
+    const restNew = layout.boxes
+        .filter((box) => !pairedOld.has(box.id))
+        .sort((a, b) => a.depth - b.depth || a.y - b.y);
+    const restOld = [...unmatchedOld].sort((a, b) => a.depth - b.depth || a.y - b.y);
+    restNew.forEach((box, index) => {
+        const old = restOld[index];
+        if (old) {
+            pairedOld.set(box.id, old);
+        }
+    });
+
+    // 生成新节点：命中的保 id 保位置，没命中的放父旁
+    let maxId = 0;
+    for (const node of existing.nodes) {
+        const matched = node.id.match(/^b(\d+)$/);
+        if (matched) {
+            maxId = Math.max(maxId, Number(matched[1]));
+        }
+    }
+    const placedCount = new Map<string, number>();
+    const idOfNewBox = new Map<string, string>();
+    const nodes: MindBoardNode[] = [];
+
+    for (const box of layout.boxes) {
+        const paired = pairedOld.get(box.id);
+        if (paired) {
+            idOfNewBox.set(box.id, paired.id);
+            nodes.push({ ...paired, title: box.label, depth: box.depth });
+            continue;
+        }
+        maxId += 1;
+        const id = `b${maxId}`;
+        idOfNewBox.set(box.id, id);
+        const parentId = parentOf.get(box.id);
+        const parent = parentId ? pairedOld.get(parentId) : undefined;
+        let x: number;
+        let y: number;
+        if (parent) {
+            // 新节点落在父节点右边，同父多个时竖着排开
+            const count = placedCount.get(parent.id) ?? 0;
+            placedCount.set(parent.id, count + 1);
+            x = parent.x + 320;
+            y = parent.y + count * 140;
+            // 和已有节点撞上就往下挪，不挤在一起
+            while (nodes.some((node) => Math.abs(node.x - x) < 220 && Math.abs(node.y - y) < 90)) {
+                y += 140;
+            }
+        } else {
+            x = Math.round(box.x);
+            y = Math.round(box.y * 1.3);
+        }
+        nodes.push({ id, title: box.label, depth: box.depth, x, y });
+    }
+
+    // 连线全量重建（用最终 id），id 稳定所以画布上不闪
+    const edges: MindBoardEdge[] = [];
+    layout.edges.forEach((edge, index) => {
+        const source = idOfNewBox.get(edge.from);
+        const target = idOfNewBox.get(edge.to);
+        // 两端不在本次转换里就不带过去，画板上不留悬空线
+        if (!source || !target) {
+            return;
+        }
+        edges.push({ id: `e-${source}-${target}-${index}`, source, target, label: edge.label });
+    });
+
+    return { nodes, edges, updatedAt: new Date().toISOString() };
 }
 
 /**

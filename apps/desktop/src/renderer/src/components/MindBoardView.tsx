@@ -19,7 +19,7 @@ import {
     createMindBoardNode,
     layoutFlow,
     layoutMindmap,
-    layoutToMindBoard,
+    mergeLayoutToMindBoard,
     mindBoardToOutline,
     mindDepthColor,
     nextMindBoardNodeId,
@@ -168,6 +168,11 @@ function MindBoardCanvas() {
 
     const { screenToFlowPosition, setCenter } = useReactFlow();
     const skipNextSave = useRef(true);
+    // 文本改动后自动同步到画板的防抖定时器
+    const autoApplyTimer = useRef<number | null>(null);
+    // 画布最新状态的镜像：定时器回调不能用陈旧闭包里的旧 state
+    const nodesRef = useRef<Node[]>([]);
+    const edgesRef = useRef<Edge[]>([]);
 
     // 载入已有导图画板 + 文本源
     useEffect(() => {
@@ -196,6 +201,23 @@ function MindBoardCanvas() {
             }
         })();
     }, [book, setNodes, setEdges, pushToast]);
+
+    // 组件卸载时清掉自动同步定时器
+    useEffect(() => {
+        return () => {
+            if (autoApplyTimer.current !== null) {
+                window.clearTimeout(autoApplyTimer.current);
+            }
+        };
+    }, []);
+
+    // 画布状态镜像到 ref，定时器回调读的是最新值而不是陈旧闭包
+    useEffect(() => {
+        nodesRef.current = nodes;
+    }, [nodes]);
+    useEffect(() => {
+        edgesRef.current = edges;
+    }, [edges]);
 
     const selectedNode = useMemo(() => {
         const target = nodes.find((node) => node.id === selectedId);
@@ -269,7 +291,7 @@ function MindBoardCanvas() {
     }
 
     /**
-     * 改源文本并存盘
+     * 改源文本并存盘，同时防抖自动同步到画板
      * @param text 新源文本
      */
     function updateSource(text: string): void {
@@ -280,47 +302,59 @@ function MindBoardCanvas() {
             setFlowSource(text);
             void persistDiagram(mode, mindmapSource, text);
         }
+        // 文本写好画板就跟着更新，增量不动手动排版；把最新文本带进回调
+        scheduleAutoApply(text);
     }
 
     /**
-     * 按当前文本解析出布局（应用到画板用）
+     * 按文本解析出布局（应用到画板用）
+     * @param text 源文本，显式传入避免定时器拿到旧内容
      * @returns 布局结果，解析不出返回 null
      */
-    function parseCurrentLayout(): DiagramLayout | null {
+    function parseLayoutFrom(text: string): DiagramLayout | null {
         if (mode === 'mindmap') {
-            const roots = parseMindmap(mindmapSource);
+            const roots = parseMindmap(text);
             return roots.length > 0 ? layoutMindmap(roots) : null;
         }
-        const graph = parseFlow(flowSource);
+        const graph = parseFlow(text);
         return graph.nodes.length > 0 ? layoutFlow(graph) : null;
     }
 
     /**
-     * 应用到画板：文本 → 画布结构（手动应用，点了才更新）
-     * 同名节点沿用画布上拖过的位置，文本只负责节点和连线的结构
+     * 应用到画板：增量同步，只动文本里变化的节点（手动和自动共用）
+     * 命中的旧节点保 id 保位置，新增的进父旁，多余的删掉——不整板重排、不还原手动排版
+     * @param auto 是否自动触发（自动时不弹提示，免得一直打断）
+     * @param textOverride 显式指定源文本（定时器回调用，不吃陈旧闭包）
      */
-    function applyToBoard(): void {
-        const layout = parseCurrentLayout();
+    function applyToBoard(auto = false, textOverride?: string): void {
+        const layout = parseLayoutFrom(textOverride ?? source);
         if (!layout) {
-            pushToast('error', '文本是空的或格式不对，先写点内容');
+            if (!auto) {
+                pushToast('error', '文本是空的或格式不对，先写点内容');
+            }
             return;
         }
-        // 记下同名节点的旧位置，手动排版不被覆盖
-        const positionOf = new Map<string, { x: number; y: number }>();
-        for (const node of nodes.map(payloadOf)) {
-            if (node && !positionOf.has(node.title)) {
-                positionOf.set(node.title, { x: node.x, y: node.y });
-            }
-        }
-        const items = layoutToMindBoard(layout, [], { x: 0, y: 0 });
-        const merged = items.nodes.map((node) => {
-            const old = positionOf.get(node.title);
-            return old ? { ...node, x: old.x, y: old.y } : node;
-        });
-        setNodes(merged.map(toFlowNode));
-        setEdges(items.edges.map(toFlowEdge));
+        const merged = mergeLayoutToMindBoard(toGraph(nodesRef.current, edgesRef.current), layout);
+        setNodes(merged.nodes.map(toFlowNode));
+        setEdges(merged.edges.map(toFlowEdge));
         skipNextSave.current = false;
-        pushToast('success', `画板已按文本更新：${merged.length} 个节点，同名节点保留原位置`);
+        if (!auto) {
+            pushToast('success', '画板已同步，只动了变化的部分');
+        }
+    }
+
+    /**
+     * 文本改动后防抖自动同步到画板：写好就出现，不用手动点
+     * @param text 最新源文本，直接带进回调，防闭包拿到旧值
+     */
+    function scheduleAutoApply(text: string): void {
+        if (autoApplyTimer.current !== null) {
+            window.clearTimeout(autoApplyTimer.current);
+        }
+        autoApplyTimer.current = window.setTimeout(() => {
+            autoApplyTimer.current = null;
+            applyToBoard(true, text);
+        }, 800);
     }
 
     /**
@@ -618,8 +652,8 @@ function MindBoardCanvas() {
                         <button
                             type="button"
                             className="btn-primary h-7 flex-1 text-[13px]"
-                            onClick={applyToBoard}
-                            title="按左边文本重建画板结构；同名节点保留你拖过的位置"
+                            onClick={() => applyToBoard()}
+                            title="增量同步到画板：只动变化的节点，拖过的排版不还原。文本改动也会自动同步"
                         >
                             应用到画板
                         </button>
