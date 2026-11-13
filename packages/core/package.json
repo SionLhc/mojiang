@@ -1,6 +1,6 @@
 {
     "name": "@mojiang/core",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "private": true,
     "type": "module",
     "description": "墨匠核心纯 TypeScript 能力：检测、基线、账本、伏笔，不依赖 Electron",
