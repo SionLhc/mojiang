@@ -7,8 +7,24 @@
  * 3. 诊断结果必须能落到具体节点上，否则就是废话
  */
 
-/** 节点类型 */
-export type PlotNodeKind = 'setup' | 'turn' | 'climax' | 'foreshadow' | 'suspense';
+/**
+ * 节点类型
+ * 分两组：剧情组给小说用，通用组给笔记/工作文档用
+ */
+export type PlotNodeKind =
+    | 'setup'
+    | 'turn'
+    | 'climax'
+    | 'foreshadow'
+    | 'suspense'
+    | 'idea'
+    | 'task'
+    | 'question'
+    | 'note'
+    | 'result';
+
+/** 节点类型的分组 */
+export type PlotNodeGroup = 'novel' | 'general';
 
 /** 一个剧情节点 */
 export interface PlotNode {
@@ -56,13 +72,33 @@ export const PLOT_NODE_KINDS: Array<{
     color: string;
     /** 卡片底色（很淡） */
     tint: string;
+    /** 属于哪一组 */
+    group: PlotNodeGroup;
 }> = [
-    { kind: 'setup', name: '铺垫', color: '#7c6bc4', tint: 'rgba(124, 107, 196, 0.08)' },
-    { kind: 'turn', name: '转折', color: '#c4761f', tint: 'rgba(196, 118, 31, 0.08)' },
-    { kind: 'climax', name: '高潮', color: '#bf3a2c', tint: 'rgba(191, 58, 44, 0.08)' },
-    { kind: 'foreshadow', name: '伏笔', color: '#7a58a6', tint: 'rgba(122, 88, 166, 0.09)' },
-    { kind: 'suspense', name: '悬念', color: '#23806a', tint: 'rgba(35, 128, 106, 0.08)' },
+    // 剧情组
+    { kind: 'setup', name: '铺垫', color: '#7c6bc4', tint: 'rgba(124, 107, 196, 0.08)', group: 'novel' },
+    { kind: 'turn', name: '转折', color: '#c4761f', tint: 'rgba(196, 118, 31, 0.08)', group: 'novel' },
+    { kind: 'climax', name: '高潮', color: '#bf3a2c', tint: 'rgba(191, 58, 44, 0.08)', group: 'novel' },
+    { kind: 'foreshadow', name: '伏笔', color: '#7a58a6', tint: 'rgba(122, 88, 166, 0.09)', group: 'novel' },
+    { kind: 'suspense', name: '悬念', color: '#23806a', tint: 'rgba(35, 128, 106, 0.08)', group: 'novel' },
+    // 通用组：笔记、工作文档、项目梳理
+    { kind: 'idea', name: '想法', color: '#c4761f', tint: 'rgba(196, 118, 31, 0.08)', group: 'general' },
+    { kind: 'task', name: '待办', color: '#2f6fb8', tint: 'rgba(47, 111, 184, 0.08)', group: 'general' },
+    { kind: 'question', name: '问题', color: '#bf3a2c', tint: 'rgba(191, 58, 44, 0.08)', group: 'general' },
+    { kind: 'note', name: '资料', color: '#6b7280', tint: 'rgba(107, 114, 128, 0.08)', group: 'general' },
+    { kind: 'result', name: '结论', color: '#23806a', tint: 'rgba(35, 128, 106, 0.08)', group: 'general' },
 ];
+
+/**
+ * 取某个项目类型可用的节点类型
+ * 小说用剧情组，其余一律用通用组
+ * @param isNovel 是否小说项目
+ * @returns 节点类型列表
+ */
+export function plotKindsFor(isNovel: boolean): typeof PLOT_NODE_KINDS {
+    const group: PlotNodeGroup = isNovel ? 'novel' : 'general';
+    return PLOT_NODE_KINDS.filter((item) => item.group === group);
+}
 
 /** 连线类型的展示配置 */
 export const PLOT_EDGE_KINDS: Array<{ kind: PlotEdgeKind; name: string }> = [
@@ -128,20 +164,22 @@ export function createPlotNode(
  * @param graph 剧情图
  * @returns 文本
  */
-export function serializePlotForPrompt(graph: PlotGraph): string {
+export function serializePlotForPrompt(graph: PlotGraph, isNovel = true): string {
     const lines: string[] = [];
+    /** 小说叫"人物"，通用画布叫"关联"，同一个字段 */
+    const peopleLabel = isNovel ? '人物' : '关联';
 
     if (graph.nodes.length === 0) {
         return '（画布是空的）';
     }
 
-    lines.push('【剧情节点】');
+    lines.push(isNovel ? '【剧情节点】' : '【画布节点】');
     for (const node of graph.nodes) {
         const kindName = plotKindStyle(node.kind).name;
         const characters = node.characters.length > 0 ? node.characters.join('、') : '未标注';
         const chapter = node.chapter ? ` | 第${node.chapter}章` : '';
         const summary = node.summary.trim().length > 0 ? node.summary.trim() : '（无摘要）';
-        lines.push(`[${node.id}] ${kindName} | ${node.title} | ${summary} | 人物：${characters}${chapter}`);
+        lines.push(`[${node.id}] ${kindName} | ${node.title} | ${summary} | ${peopleLabel}：${characters}${chapter}`);
     }
 
     lines.push('');
@@ -181,14 +219,19 @@ export function serializePlotForPrompt(graph: PlotGraph): string {
     return lines.join('\n');
 }
 
-/** 诊断问题的类型 */
+/**
+ * 诊断问题的类型
+ * 前六个偏剧情分析，后两个通用（孤立节点、缺少支撑）
+ */
 export type PlotFindingKind =
     | 'pacing'
     | 'broken-chain'
     | 'weak-cause'
     | 'absence'
     | 'climax-position'
-    | 'branch-overload';
+    | 'branch-overload'
+    | 'isolated'
+    | 'missing-support';
 
 /** 一条诊断结论 */
 export interface PlotFinding {
@@ -218,6 +261,8 @@ const FINDING_KINDS: PlotFindingKind[] = [
     'absence',
     'climax-position',
     'branch-overload',
+    'isolated',
+    'missing-support',
 ];
 
 /** 系统提示：只允许输出 JSON */
@@ -240,16 +285,41 @@ export const PLOT_SYSTEM_PROMPT = [
     'severity 只能是：info / warn / error。',
 ].join('\n');
 
+/** 通用画布的系统提示：笔记、工作文档、项目梳理都用这套 */
+export const CANVAS_SYSTEM_PROMPT = [
+    '你是结构分析器。用户给你一张关系图（节点 + 连线），你只能基于给出的内容分析。',
+    '',
+    '硬规则：',
+    '1. 只能引用给出的节点 id，不得编造不存在的节点。',
+    '2. 每条结论必须用 nodeIds 指明涉及哪些节点，否则不要输出。',
+    '3. 不写"建议补充内容""可以更清晰"这类空话，必须说清在哪两个节点之间、缺什么、为什么。',
+    '4. 没发现问题的维度不要硬凑，findings 可以是空数组。',
+    '5. 只输出 JSON，不要任何解释文字、不要 markdown 代码块。',
+    '',
+    '评分：structureScore 0-100，只反映信息组织是否完整（有没有孤立节点、有没有结论缺支撑、层次是否清晰），不评价内容本身写得好不好。',
+    '',
+    '输出格式：',
+    '{"structureScore":0,"findings":[{"kind":"isolated","severity":"warn","nodeIds":["n1"],"message":"...","suggestion":"..."}]}',
+    '',
+    'kind 只能是：isolated（孤立节点）、missing-support（缺少支撑）、pacing（堆叠）、broken-chain（断链）、weak-cause（关系薄弱）、absence（关键信息缺失）、branch-overload（分支过多）。',
+    'severity 只能是：info / warn / error。',
+].join('\n');
+
 /**
  * 构造用户消息
- * @param graph 剧情图
+ * 小说走剧情分析，其余走通用结构分析
+ * @param graph 画布数据
+ * @param isNovel 是否小说项目
  * @returns 提示词
  */
-export function buildPlotUserPrompt(graph: PlotGraph): string {
+export function buildCanvasUserPrompt(graph: PlotGraph, isNovel: boolean): string {
+    const request = isNovel
+        ? '请分析这张剧情图的结构，找出真实存在的问题。'
+        : '请分析这张图的信息组织，找出真实存在的问题（孤立、断链、缺支撑、堆叠）。';
     return [
-        serializePlotForPrompt(graph),
+        serializePlotForPrompt(graph, isNovel),
         '',
-        '请分析这张剧情图的结构，找出真实存在的问题。',
+        request,
         '要求：每条结论必须指向具体节点；没有问题就返回空 findings，不要为了凑数编问题。',
     ].join('\n');
 }

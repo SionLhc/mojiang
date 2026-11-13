@@ -14,12 +14,14 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
-    PLOT_NODE_KINDS,
+    CANVAS_SYSTEM_PROMPT,
     PLOT_SYSTEM_PROMPT,
-    buildPlotUserPrompt,
+    buildCanvasUserPrompt,
     createPlotNode,
+    getProjectFeatures,
     nextPlotNodeId,
     parsePlotDiagnosis,
+    plotKindsFor,
     type PlotDiagnosis,
     type PlotEdge,
     type PlotEdgeKind,
@@ -49,10 +51,12 @@ function payloadOf(node: Node): PlotNode | null {
 const FINDING_LABELS: Record<string, string> = {
     pacing: '节奏',
     'broken-chain': '断链',
-    'weak-cause': '因果薄弱',
+    'weak-cause': '关系薄弱',
     absence: '人物缺席',
     'climax-position': '高潮位置',
     'branch-overload': '支线过载',
+    isolated: '孤立节点',
+    'missing-support': '缺少支撑',
 };
 
 /**
@@ -73,6 +77,12 @@ function PlotCanvas() {
     const pushToast = useAppStore((state) => state.pushToast);
     const setActiveView = useAppStore((state) => state.setActiveView);
     const properNouns = useAppStore((state) => state.properNouns);
+
+    // 小说用剧情语义，笔记和工作文档用通用语义
+    const isNovel = getProjectFeatures(book?.kind).beatSheet;
+    const kinds = plotKindsFor(isNovel);
+    const primaryKind: PlotNodeKind = isNovel ? 'setup' : 'idea';
+    const secondaryKind: PlotNodeKind = isNovel ? 'foreshadow' : 'task';
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -169,7 +179,7 @@ function PlotCanvas() {
                     {
                         ...connection,
                         id: `e-${connection.source}-${connection.target}-${Date.now()}`,
-                        type: 'smoothstep',
+                        type: 'default',
                         animated: true,
                         label: '',
                         data: { kind: 'cause' as PlotEdgeKind },
@@ -266,8 +276,11 @@ function PlotCanvas() {
                 providerId: settings.provider.id,
                 model: settings.provider.model,
                 messages: [
-                    { role: 'system', content: PLOT_SYSTEM_PROMPT },
-                    { role: 'user', content: buildPlotUserPrompt(graph) },
+                    {
+                        role: 'system',
+                        content: isNovel ? PLOT_SYSTEM_PROMPT : CANVAS_SYSTEM_PROMPT,
+                    },
+                    { role: 'user', content: buildCanvasUserPrompt(graph, isNovel) },
                 ],
                 temperature: 0.3,
                 maxTokens: 1600,
@@ -351,18 +364,28 @@ function PlotCanvas() {
                         </svg>
                         <span className="text-[13px]">正文</span>
                     </button>
-                    <h2 className="text-[14px] font-medium text-ink-100">剧情编排</h2>
+                    <h2 className="text-[14px] font-medium text-ink-100">
+                        {isNovel ? '剧情编排' : '画板'}
+                    </h2>
                     <span className="text-[13px] text-ink-500">
                         {nodes.length} 个节点 · {edges.length} 条关系
                     </span>
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                    <button type="button" className="btn-outline text-[13px]" onClick={() => addNode('setup')}>
-                        + 剧情
+                    <button
+                        type="button"
+                        className="btn-outline text-[13px]"
+                        onClick={() => addNode(primaryKind)}
+                    >
+                        + {isNovel ? '剧情' : '想法'}
                     </button>
-                    <button type="button" className="btn-outline text-[13px]" onClick={() => addNode('foreshadow')}>
-                        + 伏笔
+                    <button
+                        type="button"
+                        className="btn-outline text-[13px]"
+                        onClick={() => addNode(secondaryKind)}
+                    >
+                        + {isNovel ? '伏笔' : '待办'}
                     </button>
                     <button
                         type="button"
@@ -382,6 +405,7 @@ function PlotCanvas() {
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
                     onConnect={handleConnect}
+                    defaultEdgeOptions={{ type: 'default' }}
                     onNodeClick={(_event, node) => setSelectedId(node.id)}
                     onPaneClick={() => setSelectedId(null)}
                     nodeTypes={NODE_TYPES}
@@ -396,8 +420,10 @@ function PlotCanvas() {
 
                 {nodes.length === 0 && (
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1">
-                        <p className="text-[14px] text-ink-400">双击空白处新建剧情节点</p>
-                        <p className="text-[13px] text-ink-500">从节点上边缘圆点拖出可以连线</p>
+                        <p className="text-[14px] text-ink-400">
+                            双击空白处新建{isNovel ? '剧情节点' : '卡片'}
+                        </p>
+                        <p className="text-[13px] text-ink-500">从卡片边缘的圆点拖出可以连线</p>
                     </div>
                 )}
 
@@ -407,6 +433,8 @@ function PlotCanvas() {
                         {selected ? (
                             <NodeEditor
                                 node={selected}
+                                kinds={kinds}
+                                isNovel={isNovel}
                                 properNouns={properNouns}
                                 onChange={updateSelected}
                                 onDelete={deleteSelected}
@@ -448,6 +476,9 @@ function PlotCanvas() {
 /** 节点编辑面板属性 */
 interface NodeEditorProps {
     node: PlotNode;
+    /** 当前项目类型可用的节点类型 */
+    kinds: ReturnType<typeof plotKindsFor>;
+    isNovel: boolean;
     properNouns: string[];
     onChange: (patch: Partial<PlotNode>) => void;
     onDelete: () => void;
@@ -457,7 +488,15 @@ interface NodeEditorProps {
 /**
  * 右侧节点编辑面板
  */
-function NodeEditor({ node, properNouns, onChange, onDelete, onClose }: NodeEditorProps) {
+function NodeEditor({
+    node,
+    kinds,
+    isNovel,
+    properNouns,
+    onChange,
+    onDelete,
+    onClose,
+}: NodeEditorProps) {
     return (
         <div className="space-y-2.5">
             <div className="flex items-center justify-between">
@@ -468,7 +507,7 @@ function NodeEditor({ node, properNouns, onChange, onDelete, onClose }: NodeEdit
             </div>
 
             <div className="grid grid-cols-5 gap-1">
-                {PLOT_NODE_KINDS.map((item) => (
+                {kinds.map((item) => (
                     <button
                         type="button"
                         key={item.kind}
@@ -502,10 +541,10 @@ function NodeEditor({ node, properNouns, onChange, onDelete, onClose }: NodeEdit
             />
 
             <div>
-                <p className="label mb-1">人物（逗号分隔）</p>
+                <p className="label mb-1">{isNovel ? '人物（逗号分隔）' : '关联（逗号分隔）'}</p>
                 <input
                     className="field text-[13px]"
-                    placeholder={properNouns.slice(0, 3).join('、') || '角色名'}
+                    placeholder={properNouns.slice(0, 3).join('、') || (isNovel ? '角色名' : '标签、负责人')}
                     value={node.characters.join('、')}
                     onChange={(event) =>
                         onChange({
@@ -518,21 +557,23 @@ function NodeEditor({ node, properNouns, onChange, onDelete, onClose }: NodeEdit
                 />
             </div>
 
-            <div>
-                <p className="label mb-1">绑定章节</p>
-                <input
-                    className="field text-[13px]"
-                    type="number"
-                    min={1}
-                    placeholder="不绑就留空"
-                    value={node.chapter ?? ''}
-                    onChange={(event) =>
-                        onChange({
-                            chapter: event.target.value ? Number(event.target.value) : undefined,
-                        })
-                    }
-                />
-            </div>
+            {isNovel && (
+                <div>
+                    <p className="label mb-1">绑定章节</p>
+                    <input
+                        className="field text-[13px]"
+                        type="number"
+                        min={1}
+                        placeholder="不绑就留空"
+                        value={node.chapter ?? ''}
+                        onChange={(event) =>
+                            onChange({
+                                chapter: event.target.value ? Number(event.target.value) : undefined,
+                            })
+                        }
+                    />
+                </div>
+            )}
 
             <button
                 type="button"
@@ -645,7 +686,7 @@ function toFlowEdge(edge: PlotEdge): Edge {
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        type: 'smoothstep',
+        type: 'default',
         animated: edge.kind === 'cause',
         label: edge.label,
         data: { kind: edge.kind },

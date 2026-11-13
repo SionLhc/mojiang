@@ -17,9 +17,11 @@ interface SidebarProps {
 const TOOL_VIEWS: Array<{
     key: WorkspaceView;
     label: string;
+    /** 非小说项目用的名字，不填就沿用 label */
+    generalLabel?: string;
     feature: 'ledger' | 'foreshadow' | 'characters' | 'golden3' | 'writingPackage' | 'market' | 'plot';
 }> = [
-    { key: 'plot', label: '剧情编排', feature: 'plot' },
+    { key: 'plot', label: '剧情编排', generalLabel: '画板', feature: 'plot' },
     { key: 'ledger', label: '账本', feature: 'ledger' },
     { key: 'foreshadow', label: '伏笔', feature: 'foreshadow' },
     { key: 'characters', label: '人设', feature: 'characters' },
@@ -504,7 +506,9 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                                             : 'bg-ink-850 text-ink-300 hover:bg-ink-800 hover:text-ink-100'
                                     }`}
                                 >
-                                    {tool.label}
+                                    {tool.generalLabel && !features.beatSheet
+                                        ? tool.generalLabel
+                                        : tool.label}
                                 </button>
                             ))}
                         </div>

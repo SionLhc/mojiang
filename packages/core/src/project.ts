@@ -90,7 +90,8 @@ const NOTES_FEATURE: ProjectFeature = {
     writingPackage: false,
     outline8: false,
     market: false,
-    plot: false,
+    // 画板是通用能力，笔记和工作文档也能用来梳理结构
+    plot: true,
     contentDir: '文档',
     contentLabel: '文档',
     createLabel: '新建文档',
