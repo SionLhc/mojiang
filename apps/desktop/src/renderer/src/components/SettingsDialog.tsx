@@ -302,13 +302,44 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                         </div>
                         {encryption && <p className="mt-1.5 text-[13px] text-ink-600">{encryption}</p>}
                         {testResult && (
-                            <p
-                                className={`mt-1.5 text-[13px] ${
-                                    testResult.ok ? 'text-jade-400' : 'text-amber-500'
-                                }`}
-                            >
-                                {testResult.message}
-                            </p>
+                            <div className="mt-1.5 space-y-1">
+                                <p
+                                    className={`text-[13px] ${
+                                        testResult.ok ? 'text-jade-400' : 'text-amber-500'
+                                    }`}
+                                >
+                                    {testResult.message}
+                                    {testResult.latencyMs !== undefined
+                                        ? ` · 延迟 ${testResult.latencyMs}ms`
+                                        : ''}
+                                </p>
+
+                                {/* 服务端返回的模型清单：确认自己填的模型名确实存在 */}
+                                {testResult.models && testResult.models.length > 0 && (
+                                    <div className="rounded-md border border-ink-800 bg-ink-850 p-2">
+                                        <p className="mb-1 text-[13px] text-ink-500">
+                                            服务端可用的模型：
+                                        </p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {testResult.models.map((item) => (
+                                                <button
+                                                    type="button"
+                                                    key={item}
+                                                    onClick={() => setModel(item)}
+                                                    title="点一下切换到这个模型"
+                                                    className={`rounded px-1.5 py-0.5 text-[13px] ${
+                                                        item === model
+                                                            ? 'bg-jade-500/15 text-jade-400'
+                                                            : 'bg-ink-800 text-ink-300 hover:text-ink-100'
+                                                    }`}
+                                                >
+                                                    {item}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </div>
 

@@ -168,10 +168,13 @@ export function registerLlmIpc(): void {
                             type: 'done',
                             usage,
                             costCny,
+                            // 服务端自报的模型名比配置值权威，配置错时会露出来
+                            model: chunk.model ?? params.model,
                         });
                         logInfo('模型调用完成', {
                             purpose: params.purpose,
-                            model: params.model,
+                            configured: params.model,
+                            reported: chunk.model ?? null,
                             costCny,
                             promptTokens: usage.promptTokens,
                             completionTokens: usage.completionTokens,

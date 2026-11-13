@@ -162,12 +162,18 @@ export interface LlmStreamEvent {
     usage?: TokenUsage;
     /** 本次花费 */
     costCny?: number;
+    /** 服务端自报的模型标识，比配置值权威 */
+    model?: string;
 }
 
 /** 连接测试结果 */
 export interface ConnectionResult {
     ok: boolean;
     message: string;
+    /** 服务端返回的可用模型 id 清单 */
+    models?: string[];
+    /** 往返延迟毫秒数 */
+    latencyMs?: number;
 }
 
 /** provider 的可选模型 */

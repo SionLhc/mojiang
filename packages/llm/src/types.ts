@@ -36,6 +36,11 @@ export interface ChatChunk {
     done: boolean;
     /** 只有最后一帧可能带用量 */
     usage?: TokenUsage;
+    /**
+     * 服务端自报的模型标识
+     * 这是唯一可信的"实际在用哪个模型"来源，比配置值权威
+     */
+    model?: string;
 }
 
 /** 可选模型信息 */
@@ -49,6 +54,10 @@ export interface ModelInfo {
 export interface ConnectionTestResult {
     ok: boolean;
     message: string;
+    /** 服务端返回的可用模型 id 清单 */
+    models?: string[];
+    /** 往返延迟毫秒数 */
+    latencyMs?: number;
 }
 
 /** Provider 统一接口 */

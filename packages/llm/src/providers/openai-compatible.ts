@@ -26,6 +26,8 @@ export interface OpenAICompatibleOptions {
 
 /** OpenAI 流式响应里单帧的结构（只声明用到的字段） */
 interface OpenAIStreamFrame {
+    /** 服务端自报的模型标识 */
+    model?: string;
     choices?: Array<{
         delta?: { content?: string };
         finish_reason?: string | null;
@@ -99,6 +101,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
         let finished = false;
         let usage: ChatChunk['usage'];
+        let reportedModel: string | undefined;
 
         for await (const payload of readSseData(response.body)) {
             if (payload === '[DONE]') {
@@ -111,6 +114,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
             } catch {
                 // 个别服务商会夹带非 JSON 的心跳，跳过即可
                 continue;
+            }
+            if (frame.model) {
+                reportedModel = frame.model;
             }
             if (frame.usage) {
                 usage = {
@@ -127,7 +133,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
             }
         }
 
-        yield { delta: '', done: true, usage };
+        yield { delta: '', done: true, usage, model: reportedModel };
         if (!finished) {
             // 流被服务端提前掐断，交给上层决定是否重试
             return;
@@ -162,14 +168,31 @@ export class OpenAICompatibleProvider implements LLMProvider {
      * @returns 测试结果
      */
     async testConnection(): Promise<ConnectionTestResult> {
+        const startedAt = Date.now();
         try {
             const response = await fetch(`${this.baseUrl}/models`, {
                 headers: this.buildHeaders(),
             });
+            const latencyMs = Date.now() - startedAt;
             if (!response.ok) {
                 return { ok: false, message: await describeHttpError(response) };
             }
-            return { ok: true, message: '连接成功' };
+
+            // 顺手把可用模型列出来，作者能确认自己填的模型名确实存在
+            let models: string[] = [];
+            try {
+                const payload = (await response.json()) as { data?: Array<{ id: string }> };
+                models = (payload.data ?? []).map((item) => item.id);
+            } catch {
+                // 有些网关 /models 返回的不是标准结构，拿到清单是加分项，拿不到不影响连接结论
+            }
+
+            return {
+                ok: true,
+                message: models.length > 0 ? `连接成功，可用模型 ${models.length} 个` : '连接成功',
+                models,
+                latencyMs,
+            };
         } catch (error) {
             return { ok: false, message: describeNetworkError(error) };
         }

@@ -14,6 +14,8 @@ interface ChatItem {
     pending?: boolean;
     error?: boolean;
     costCny?: number;
+    /** 服务端自报的模型标识 */
+    model?: string;
 }
 
 /** 系统提示：把"作者主导"写成硬规则，不是口号 */
@@ -82,7 +84,14 @@ export default function ChatPanel() {
             if (event.type === 'done') {
                 setItems((previous) =>
                     previous.map((item) =>
-                        item.pending ? { ...item, pending: false, costCny: event.costCny } : item,
+                        item.pending
+                            ? {
+                                  ...item,
+                                  pending: false,
+                                  costCny: event.costCny,
+                                  model: event.model,
+                              }
+                            : item,
                     ),
                 );
                 setStreaming(false);
@@ -356,9 +365,10 @@ export default function ChatPanel() {
                             >
                                 {item.content || (item.pending ? '…' : '')}
                             </div>
-                            {item.costCny !== undefined && (
+                            {(item.costCny !== undefined || item.model) && (
                                 <p className="mt-0.5 text-[13px] text-ink-600">
-                                    本次 {formatCny(item.costCny)}
+                                    {item.model ? `${item.model} · ` : ''}
+                                    {item.costCny !== undefined ? `本次 ${formatCny(item.costCny)}` : ''}
                                 </p>
                             )}
 
