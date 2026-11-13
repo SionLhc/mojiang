@@ -206,6 +206,11 @@ export function parseFlow(source: string): FlowGraph {
         const [body, ...labelParts] = line.split(':');
         const edgeLabel = labelParts.join(':').trim();
         const parts = body.split('->').map((part) => part.trim()).filter((part) => part.length > 0);
+        // 单节点行：登记孤立项（画板同步回来的孤立节点不会丢）
+        if (parts.length === 1) {
+            registerNode(parts[0]);
+            continue;
+        }
         for (let index = 0; index + 1 < parts.length; index += 1) {
             const from = registerNode(parts[index]);
             const to = registerNode(parts[index + 1]);

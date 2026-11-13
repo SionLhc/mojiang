@@ -56,9 +56,7 @@ export interface ProjectFeature {
     materials: boolean;
     /** 敏感词检查 */
     sensitive: boolean;
-    /** 流程图 / 思维导图 */
-    diagram: boolean;
-    /** 思维导图画板（独立画板，按层级着色、可自动排版） */
+    /** 思维导图画板（文本源 + 画布，按层级着色、可自动排版） */
     mindboard: boolean;
     /** 内容根目录的物理名字 */
     contentDir: string;
@@ -83,11 +81,10 @@ const NOVEL_FEATURE: ProjectFeature = {
     outline8: true,
     market: true,
     plot: true,
-    // 新四件是通用工具，写小说、记笔记、写文档都用得上
+    // 通用工具，写小说、记笔记、写文档都用得上
     stats: true,
     materials: true,
     sensitive: true,
-    diagram: true,
     // 导图画板是通用能力，梳理结构都用得上
     mindboard: true,
     contentDir: '正文',
@@ -109,11 +106,10 @@ const NOTES_FEATURE: ProjectFeature = {
     market: false,
     // 画板是通用能力，笔记和工作文档也能用来梳理结构
     plot: true,
-    // 新四件是通用工具：统计、素材、敏感词、图表都跟项目类型无关
+    // 通用工具：统计、素材、敏感词都跟项目类型无关
     stats: true,
     materials: true,
     sensitive: true,
-    diagram: true,
     // 导图画板是通用能力
     mindboard: true,
     contentDir: '文档',

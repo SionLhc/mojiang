@@ -23,6 +23,7 @@ import {
     createPlotNode,
     autoArrangeMindBoard,
     layoutToMindBoard,
+    mindBoardToOutline,
     parsePlotDiagnosis,
     serializePlotForPrompt,
     computeTextMetrics,
@@ -136,6 +137,8 @@ export interface SelfTestResult {
     sensitiveOk: boolean;
     /** 图表解析与自动布局是否正常 */
     diagramOk: boolean;
+    /** 画板与文本源互转是否正常 */
+    outlineOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
@@ -500,6 +503,25 @@ export function runSelfTest(): SelfTestResult {
         arranged.nodes.length === 4 &&
         arranged.nodes.every((node) => node.x >= 0 && node.y >= 0);
 
+    // 画板 → 文本：导图出缩进列表、流程出边列表，孤立节点都不能丢
+    const roundTripGraph = {
+        nodes: [
+            { id: 'b1', title: '根', depth: 0, x: 0, y: 0 },
+            { id: 'b2', title: '子', depth: 1, x: 0, y: 0 },
+            { id: 'b3', title: '孤', depth: 0, x: 0, y: 0 },
+        ],
+        edges: [{ id: 'e1', source: 'b1', target: 'b2', label: '是' }],
+        updatedAt: '',
+    };
+    const boardOutlineText = mindBoardToOutline(roundTripGraph, 'mindmap');
+    // 流程序列化的单行孤立项要能被 parseFlow 认回来
+    const flowBack = parseFlow(mindBoardToOutline(roundTripGraph, 'flow'));
+    const outlineOk =
+        boardOutlineText === '- 根\n  - 子\n- 孤' &&
+        flowBack.nodes.length === 3 &&
+        flowBack.edges.length === 1 &&
+        flowBack.edges[0].label === '是';
+
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
     const mergedPrompt = composeSystemPrompt(basePrompt, '不要用形容词堆砌');
@@ -600,6 +622,7 @@ export function runSelfTest(): SelfTestResult {
         statsOk,
         sensitiveOk,
         diagramOk: diagramOk && diagramBoardOk,
+        outlineOk,
         promptOk,
         plotOk,
         importOk,

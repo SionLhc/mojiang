@@ -207,3 +207,84 @@ export function autoArrangeMindBoard(graph: MindBoardGraph): MindBoardGraph {
         updatedAt: new Date().toISOString(),
     };
 }
+
+/**
+ * 把导图画板序列化回文本源（画板 → 文本，和"应用到画板"反向）
+ * 思维导图模式：按树结构输出缩进列表，两个空格一级
+ * 流程图模式：每条边一行「A -> B : 文字」，孤立节点单行输出
+ * @param graph 导图画板
+ * @param mode 图的类型
+ * @returns 文本源
+ */
+export function mindBoardToOutline(graph: MindBoardGraph, mode: 'mindmap' | 'flow'): string {
+    const titleOf = new Map(graph.nodes.map((node) => [node.id, node.title]));
+
+    if (mode === 'flow') {
+        const lines: string[] = [];
+        const connected = new Set<string>();
+        for (const edge of graph.edges) {
+            const from = titleOf.get(edge.source);
+            const to = titleOf.get(edge.target);
+            // 悬空线不输出
+            if (!from || !to) {
+                continue;
+            }
+            connected.add(edge.source);
+            connected.add(edge.target);
+            lines.push(edge.label ? `${from} -> ${to} : ${edge.label}` : `${from} -> ${to}`);
+        }
+        // 孤立节点单行输出，parseFlow 认这种写法
+        for (const node of graph.nodes) {
+            if (!connected.has(node.id)) {
+                lines.push(node.title);
+            }
+        }
+        return lines.join('\n');
+    }
+
+    // 思维导图：先按边建树，再深度优先展开成缩进列表
+    const childrenMap = new Map<string, string[]>();
+    const incoming = new Set<string>();
+    for (const edge of graph.edges) {
+        if (!titleOf.has(edge.source) || !titleOf.has(edge.target)) {
+            continue;
+        }
+        const bucket = childrenMap.get(edge.source) ?? [];
+        bucket.push(edge.target);
+        childrenMap.set(edge.source, bucket);
+        incoming.add(edge.target);
+    }
+    // 没有入边的是根；全是环就从第一个开始
+    const roots = graph.nodes.filter((node) => !incoming.has(node.id));
+    const startNodes = roots.length > 0 ? roots : graph.nodes.slice(0, 1);
+
+    const lines: string[] = [];
+    const visited = new Set<string>();
+
+    /**
+     * 深度优先输出一行节点和它的子树
+     * @param nodeId 节点 id
+     * @param depth 缩进层级
+     */
+    function walk(nodeId: string, depth: number): void {
+        if (visited.has(nodeId)) {
+            return;
+        }
+        visited.add(nodeId);
+        lines.push(`${'  '.repeat(depth)}- ${titleOf.get(nodeId) ?? nodeId}`);
+        for (const child of childrenMap.get(nodeId) ?? []) {
+            walk(child, depth + 1);
+        }
+    }
+
+    for (const root of startNodes) {
+        walk(root.id, 0);
+    }
+    // 孤立节点补在最后，当顶级
+    for (const node of graph.nodes) {
+        if (!visited.has(node.id)) {
+            walk(node.id, 0);
+        }
+    }
+    return lines.join('\n');
+}

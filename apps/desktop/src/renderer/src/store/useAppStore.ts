@@ -34,7 +34,6 @@ export type WorkspaceView =
     | 'stats'
     | 'materials'
     | 'sensitive'
-    | 'diagram'
     | 'mindboard';
 
 /** 最近一次编辑正文的时间戳，给码字计时用 */

@@ -17,11 +17,15 @@ import {
     MIND_DEPTH_COLORS,
     autoArrangeMindBoard,
     createMindBoardNode,
+    layoutFlow,
     layoutMindmap,
     layoutToMindBoard,
+    mindBoardToOutline,
     mindDepthColor,
     nextMindBoardNodeId,
+    parseFlow,
     parseMindmap,
+    type DiagramLayout,
     type MindBoardEdge,
     type MindBoardGraph,
     type MindBoardNode,
@@ -32,6 +36,27 @@ import { useAppStore } from '@/store/useAppStore';
 
 /** 节点组件映射，必须定义在组件外，否则每次渲染都会重建 */
 const NODE_TYPES = { mind: MindNodeCard };
+
+/** 文本源文件结构，存在书里的 图表.json */
+interface DiagramFile {
+    mode: 'mindmap' | 'flow';
+    mindmapSource: string;
+    flowSource: string;
+}
+
+/** 默认示例，空文件时先给个看得懂的模板 */
+const DEFAULT_MINDMAP = ['- 墨匠\n  - 写作\n    - 章节管理\n    - 素材卡片\n  - 工具\n    - 码字统计\n    - 敏感词检查'];
+
+const DEFAULT_FLOW = [
+    '# 格式：A -> B，链条也行 A -> B -> C，连线文字用 : 说明',
+    '# 节点带形状：步骤[解析]、判断{合法?}、起止(开始)',
+    '(开始) -> 读取稿件[读取稿件]',
+    '读取稿件[读取稿件] -> 判断{有章节标题?}',
+    '判断{有章节标题?} -> 自动分章[自动分章] : 是',
+    '判断{有章节标题?} -> 整篇导入[整篇导入] : 否',
+    '自动分章[自动分章] -> (完成)',
+    '整篇导入[整篇导入] -> (完成)',
+];
 
 /**
  * 从画布节点里取出领域节点
@@ -106,9 +131,10 @@ function toGraph(nodes: Node[], edges: Edge[]): MindBoardGraph {
 }
 
 /**
- * 思维导图画板
- * 独立于剧情画板：这里只放思维导图/流程图节点，按层级着色，可以自动排版。
- * 数据存在书里的 导图.json，和剧情.json 互不干扰。
+ * 思维导图画板：左文本源 + 右画布，一个视图全搞定
+ * 左边像写大纲一样写缩进列表/边列表，点「应用到画板」才更新画布（手动应用，不偷偷覆盖排版）；
+ * 画布上拖好的位置在下次应用时按同名节点保留；「同步到文本」可以把画板现状写回大纲。
+ * 文本存 图表.json，画布存 导图.json，剧情画板（剧情.json）与这里无关。
  */
 export default function MindBoardView() {
     return (
@@ -123,6 +149,7 @@ export default function MindBoardView() {
  */
 function MindBoardCanvas() {
     const book = useAppStore((state) => state.book);
+    const chapterId = useAppStore((state) => state.chapterId);
     const content = useAppStore((state) => state.content);
     const settings = useAppStore((state) => state.settings);
     const pushToast = useAppStore((state) => state.pushToast);
@@ -132,22 +159,36 @@ function MindBoardCanvas() {
     const [loaded, setLoaded] = useState(false);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-    const [drawing, setDrawing] = useState(false);
+    // 文本源：思维导图缩进列表 / 流程图边列表，两个源分开存
+    const [mode, setMode] = useState<'mindmap' | 'flow'>('mindmap');
+    const [mindmapSource, setMindmapSource] = useState(DEFAULT_MINDMAP.join('\n'));
+    const [flowSource, setFlowSource] = useState(DEFAULT_FLOW.join('\n'));
     const [aiTopic, setAiTopic] = useState('');
+    const [generating, setGenerating] = useState(false);
 
     const { screenToFlowPosition, setCenter } = useReactFlow();
     const skipNextSave = useRef(true);
 
-    // 载入已有导图画板
+    // 载入已有导图画板 + 文本源
     useEffect(() => {
         if (!book) {
             return;
         }
         void (async () => {
             try {
-                const graph = await window.api.mindboard.read(book.id);
+                const [graph, diagram] = await Promise.all([
+                    window.api.mindboard.read(book.id),
+                    window.api.file.readJson<DiagramFile>(book.id, '图表.json', {
+                        mode: 'mindmap',
+                        mindmapSource: DEFAULT_MINDMAP.join('\n'),
+                        flowSource: DEFAULT_FLOW.join('\n'),
+                    }),
+                ]);
                 setNodes(graph.nodes.map((node) => toFlowNode(node)));
                 setEdges(graph.edges.map((edge) => toFlowEdge(edge)));
+                setMode(diagram.mode === 'flow' ? 'flow' : 'mindmap');
+                setMindmapSource(diagram.mindmapSource || DEFAULT_MINDMAP.join('\n'));
+                setFlowSource(diagram.flowSource || DEFAULT_FLOW.join('\n'));
                 skipNextSave.current = true;
                 setLoaded(true);
             } catch (error) {
@@ -165,6 +206,9 @@ function MindBoardCanvas() {
         () => edges.find((edge) => edge.id === selectedEdgeId) ?? null,
         [edges, selectedEdgeId],
     );
+
+    /** 当前模式下的源文本 */
+    const source = mode === 'mindmap' ? mindmapSource : flowSource;
 
     // 位置、连线、文字变化都进签名，任何改动都要存盘
     const signature = useMemo(
@@ -198,6 +242,171 @@ function MindBoardCanvas() {
         }, 700);
         return () => window.clearTimeout(timer);
     }, [signature, loaded, book, nodes, edges, pushToast]);
+
+    /**
+     * 文本源落盘（模式切换、改文本都存）
+     * @param nextMode 当前模式
+     * @param nextMindmap 思维导图源
+     * @param nextFlow 流程图源
+     */
+    async function persistDiagram(
+        nextMode: 'mindmap' | 'flow',
+        nextMindmap: string,
+        nextFlow: string,
+    ): Promise<void> {
+        if (!book) {
+            return;
+        }
+        try {
+            await window.api.file.writeJson(book.id, '图表.json', {
+                mode: nextMode,
+                mindmapSource: nextMindmap,
+                flowSource: nextFlow,
+            } satisfies DiagramFile);
+        } catch (error) {
+            pushToast('error', `存文本源失败：${errorMessage(error)}`);
+        }
+    }
+
+    /**
+     * 改源文本并存盘
+     * @param text 新源文本
+     */
+    function updateSource(text: string): void {
+        if (mode === 'mindmap') {
+            setMindmapSource(text);
+            void persistDiagram(mode, text, flowSource);
+        } else {
+            setFlowSource(text);
+            void persistDiagram(mode, mindmapSource, text);
+        }
+    }
+
+    /**
+     * 按当前文本解析出布局（应用到画板用）
+     * @returns 布局结果，解析不出返回 null
+     */
+    function parseCurrentLayout(): DiagramLayout | null {
+        if (mode === 'mindmap') {
+            const roots = parseMindmap(mindmapSource);
+            return roots.length > 0 ? layoutMindmap(roots) : null;
+        }
+        const graph = parseFlow(flowSource);
+        return graph.nodes.length > 0 ? layoutFlow(graph) : null;
+    }
+
+    /**
+     * 应用到画板：文本 → 画布结构（手动应用，点了才更新）
+     * 同名节点沿用画布上拖过的位置，文本只负责节点和连线的结构
+     */
+    function applyToBoard(): void {
+        const layout = parseCurrentLayout();
+        if (!layout) {
+            pushToast('error', '文本是空的或格式不对，先写点内容');
+            return;
+        }
+        // 记下同名节点的旧位置，手动排版不被覆盖
+        const positionOf = new Map<string, { x: number; y: number }>();
+        for (const node of nodes.map(payloadOf)) {
+            if (node && !positionOf.has(node.title)) {
+                positionOf.set(node.title, { x: node.x, y: node.y });
+            }
+        }
+        const items = layoutToMindBoard(layout, [], { x: 0, y: 0 });
+        const merged = items.nodes.map((node) => {
+            const old = positionOf.get(node.title);
+            return old ? { ...node, x: old.x, y: old.y } : node;
+        });
+        setNodes(merged.map(toFlowNode));
+        setEdges(items.edges.map(toFlowEdge));
+        skipNextSave.current = false;
+        pushToast('success', `画板已按文本更新：${merged.length} 个节点，同名节点保留原位置`);
+    }
+
+    /**
+     * 同步到文本：画布现状 → 文本源（画板 → 文本，和应用反向）
+     */
+    function syncToText(): void {
+        const text = mindBoardToOutline(toGraph(nodes, edges), mode);
+        if (mode === 'mindmap') {
+            setMindmapSource(text);
+            void persistDiagram('mindmap', text, flowSource);
+        } else {
+            setFlowSource(text);
+            void persistDiagram('flow', mindmapSource, text);
+        }
+        pushToast('success', '画板已写回文本源');
+    }
+
+    /**
+     * 让 AI 按当前模式的格式生成文本源
+     * 素材：用户填的主题，或者当前打开的文档；生成先填文本，点「应用到画板」才上画布
+     */
+    async function generateWithAi(): Promise<void> {
+        if (!settings) {
+            pushToast('info', '先配置模型');
+            return;
+        }
+        const topic = aiTopic.trim();
+        const base = topic.length > 0 ? topic : chapterId ? content : '';
+        if (base.trim().length === 0) {
+            pushToast('error', '先填个主题，或者打开一篇文档');
+            return;
+        }
+        setGenerating(true);
+        const requestId = crypto.randomUUID();
+        let buffer = '';
+        // 流式回包不断拼进编辑框，边生成边看
+        window.api.llm.onStream((event) => {
+            if (event.requestId !== requestId) {
+                return;
+            }
+            if (event.type === 'chunk' && event.delta) {
+                buffer += event.delta;
+                if (mode === 'mindmap') {
+                    setMindmapSource(buffer);
+                } else {
+                    setFlowSource(buffer);
+                }
+            }
+        });
+        try {
+            const rule =
+                mode === 'mindmap'
+                    ? '输出思维导图大纲：Markdown 无序列表，用两个空格缩进表示层级，每行以「- 」开头。只输出列表本身，不要解释。'
+                    : '输出流程图边列表：每行格式「A -> B」或「A -> B -> C」，连线文字用「A -> B : 是」。节点形状：步骤[名字]、判断{问题}、起止(名字)。只输出边列表，不要解释。';
+            const result = await window.api.llm.chat({
+                requestId,
+                providerId: settings.provider.id,
+                model: settings.provider.model,
+                messages: [
+                    { role: 'system', content: `你是图表助手，${rule}` },
+                    { role: 'user', content: `根据下面的内容生成图：\n\n${base.slice(0, 4000)}` },
+                ],
+                temperature: 0.3,
+                maxTokens: 1200,
+                purpose: 'mindboard-draw',
+            });
+            if (!result.accepted) {
+                window.api.llm.offStream();
+                pushToast('error', result.message ?? '请求被拒绝');
+            }
+        } catch (error) {
+            pushToast('error', `生成失败：${errorMessage(error)}`);
+        } finally {
+            window.api.llm.offStream();
+            setGenerating(false);
+            // 生成完按最终文本存盘
+            const finalText = buffer || source;
+            if (mode === 'mindmap') {
+                setMindmapSource(finalText);
+                void persistDiagram(mode, finalText, flowSource);
+            } else {
+                setFlowSource(finalText);
+                void persistDiagram(mode, mindmapSource, finalText);
+            }
+        }
+    }
 
     /**
      * 新增节点
@@ -303,100 +512,6 @@ function MindBoardCanvas() {
     }
 
     /**
-     * AI 画思维导图：主题或当前正文 → 大纲 → 布局 → 铺上画板
-     * 铺上去就是普通节点，随便拖、连线、改字
-     */
-    async function runDrawMindmap(): Promise<void> {
-        if (!book || !settings) {
-            pushToast('info', '先配置模型');
-            return;
-        }
-        const topic = aiTopic.trim();
-        const source = topic.length > 0 ? topic : content.trim();
-        if (source.length === 0) {
-            pushToast('info', '写个主题，或先在正文写点东西');
-            return;
-        }
-
-        setDrawing(true);
-        const requestId = crypto.randomUUID();
-        let buffer = '';
-
-        window.api.llm.onStream((event) => {
-            if (event.requestId !== requestId) {
-                return;
-            }
-            if (event.type === 'chunk' && event.delta) {
-                buffer += event.delta;
-            }
-            if (event.type === 'done') {
-                window.api.llm.offStream();
-                setDrawing(false);
-                finishDrawMindmap(buffer);
-            }
-            if (event.type === 'error') {
-                window.api.llm.offStream();
-                setDrawing(false);
-                pushToast('error', event.message ?? '生成失败');
-            }
-        });
-
-        try {
-            const userPrompt =
-                topic.length > 0
-                    ? `围绕「${topic}」整理一份结构清晰的思维导图，层级不超过 4 级`
-                    : `把下面的内容整理成结构清晰的思维导图，抓住主干，层级不超过 4 级：\n\n${content.slice(0, 4000)}`;
-            const result = await window.api.llm.chat({
-                requestId,
-                providerId: settings.provider.id,
-                model: settings.provider.model,
-                messages: [
-                    {
-                        role: 'system',
-                        content:
-                            '你是思维导图助手。输出思维导图大纲：Markdown 无序列表，两个空格缩进表示层级，每行以「- 」开头。只输出列表本身，不要解释。',
-                    },
-                    { role: 'user', content: userPrompt },
-                ],
-                temperature: 0.3,
-                maxTokens: 1200,
-                purpose: 'mindboard-draw',
-            });
-            if (!result.accepted) {
-                window.api.llm.offStream();
-                setDrawing(false);
-                pushToast('error', result.message ?? '请求被拒绝');
-            }
-        } catch (error) {
-            window.api.llm.offStream();
-            setDrawing(false);
-            pushToast('error', errorMessage(error));
-        }
-    }
-
-    /**
-     * 解析导图大纲并铺到画板上
-     * @param raw 模型输出的缩进列表
-     */
-    function finishDrawMindmap(raw: string): void {
-        const roots = parseMindmap(raw);
-        if (roots.length === 0) {
-            pushToast('error', '模型输出不是大纲格式，没铺成');
-            return;
-        }
-        const layout = layoutMindmap(roots);
-        const existing = nodes.map(payloadOf).filter((node): node is MindBoardNode => node !== null);
-        // 多次铺入时整体右移，避开已有节点
-        const maxRight = existing.reduce((max, node) => Math.max(max, node.x + 220), 0);
-        const offset = existing.length > 0 ? { x: maxRight + 80, y: 0 } : { x: 0, y: 0 };
-        const items = layoutToMindBoard(layout, existing, offset);
-        setNodes((previous) => [...previous, ...items.nodes.map(toFlowNode)]);
-        setEdges((previous) => [...previous, ...items.edges.map(toFlowEdge)]);
-        skipNextSave.current = false;
-        pushToast('success', `导图已铺上画板：${items.nodes.length} 个节点，拖动即可排版`);
-    }
-
-    /**
      * 相机飞到某个节点
      * @param id 节点 id
      */
@@ -425,19 +540,19 @@ function MindBoardCanvas() {
                 </div>
                 <div className="flex items-center gap-1.5">
                     <input
-                        className="input h-7 w-44 text-[13px]"
-                        placeholder="主题（留空用正文）"
+                        className="field h-7 w-44 text-[13px]"
+                        placeholder="AI 主题，留空则用当前文档"
                         value={aiTopic}
                         onChange={(event) => setAiTopic(event.target.value)}
                     />
                     <button
                         type="button"
-                        className="btn-outline h-7 text-[13px]"
-                        onClick={() => void runDrawMindmap()}
-                        disabled={drawing}
-                        title="按主题或当前正文生成思维导图，铺上画板"
+                        className="btn-primary h-7 text-[13px]"
+                        onClick={() => void generateWithAi()}
+                        disabled={generating}
+                        title="按主题或当前文档生成文本源，点「应用到画板」后才上画布"
                     >
-                        {drawing ? '画图中…' : 'AI 画导图'}
+                        {generating ? '生成中…' : 'AI 帮我画'}
                     </button>
                     <button
                         type="button"
@@ -465,116 +580,172 @@ function MindBoardCanvas() {
                 </div>
             </div>
 
-            <div className="relative min-h-0 flex-1" onDoubleClick={handleDoubleClick}>
-                <ReactFlow
-                    nodes={nodes}
-                    edges={edges}
-                    onNodesChange={onNodesChange}
-                    onEdgesChange={onEdgesChange}
-                    onConnect={handleConnect}
-                    defaultEdgeOptions={{ type: 'default' }}
-                    onNodeClick={(_event, node) => {
-                        setSelectedId(node.id);
-                        setSelectedEdgeId(null);
-                    }}
-                    onEdgeClick={(_event, edge) => {
-                        setSelectedEdgeId(edge.id);
-                        setSelectedId(null);
-                    }}
-                    onPaneClick={() => {
-                        setSelectedId(null);
-                        setSelectedEdgeId(null);
-                    }}
-                    nodeTypes={NODE_TYPES}
-                    fitView
-                    minZoom={0.3}
-                    maxZoom={1.8}
-                    proOptions={{ hideAttribution: true }}
-                >
-                    <Background color="rgb(var(--ink-700))" gap={18} size={1.4} />
-                    <Controls showInteractive={false} position="bottom-left" />
-                </ReactFlow>
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+                {/* 左：文本源 */}
+                <div className="flex w-80 shrink-0 flex-col border-r border-ink-800">
+                    <div className="flex items-center gap-1.5 px-3 pt-2">
+                        {(['mindmap', 'flow'] as const).map((item) => (
+                            <button
+                                key={item}
+                                type="button"
+                                className={
+                                    mode === item
+                                        ? 'btn-outline h-7 text-[13px] text-jade-400'
+                                        : 'btn-ghost h-7 text-[13px]'
+                                }
+                                onClick={() => {
+                                    setMode(item);
+                                    void persistDiagram(item, mindmapSource, flowSource);
+                                }}
+                            >
+                                {item === 'mindmap' ? '思维导图' : '流程图'}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="px-3 py-2 text-[13px] text-ink-500">
+                        {mode === 'mindmap'
+                            ? '缩进列表：两个空格一级，「- 」开头'
+                            : '边列表：A -> B，形状用 [步骤] {判断} (起止)'}
+                    </p>
+                    <textarea
+                        className="min-h-0 flex-1 resize-none bg-transparent p-3 font-mono text-[13px] leading-relaxed text-ink-200 outline-none"
+                        value={source}
+                        onChange={(event) => updateSource(event.target.value)}
+                        spellCheck={false}
+                    />
+                    {/* 文本 ↔ 画板同步按钮，手动应用不自动覆盖 */}
+                    <div className="flex gap-1.5 border-t border-ink-800 p-2">
+                        <button
+                            type="button"
+                            className="btn-primary h-7 flex-1 text-[13px]"
+                            onClick={applyToBoard}
+                            title="按左边文本重建画板结构；同名节点保留你拖过的位置"
+                        >
+                            应用到画板
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-outline h-7 flex-1 text-[13px]"
+                            onClick={syncToText}
+                            title="把画板现状（含手动加的节点）写回左边文本"
+                        >
+                            同步到文本
+                        </button>
+                    </div>
+                </div>
 
-                {/* 选中节点/连线的编辑面板 */}
-                {selectedNode && (
-                    <div className="absolute right-3 top-3 w-60 rounded-lg border border-ink-800 bg-ink-900 p-3 shadow-lg">
-                        <p className="text-[12px] font-medium text-ink-400">节点编辑</p>
-                        <input
-                            className="input mt-2 w-full text-[13px]"
-                            value={selectedNode.title}
-                            onChange={(event) => patchNode(selectedNode.id, { title: event.target.value })}
-                        />
-                        <div className="mt-2 flex items-center justify-between">
-                            <span className="text-[12px] text-ink-400">层级</span>
-                            <div className="flex items-center gap-1.5">
-                                <button
-                                    type="button"
-                                    className="btn-outline h-6 px-2 text-[12px]"
-                                    onClick={() =>
-                                        patchNode(selectedNode.id, {
-                                            depth: Math.max(0, selectedNode.depth - 1),
-                                        })
-                                    }
-                                >
-                                    −
-                                </button>
-                                <span
-                                    className="rounded px-1.5 py-0.5 text-[12px] font-medium text-white"
-                                    style={{ backgroundColor: mindDepthColor(selectedNode.depth) }}
-                                >
-                                    {selectedNode.depth === 0 ? '主题' : `L${selectedNode.depth}`}
-                                </span>
-                                <button
-                                    type="button"
-                                    className="btn-outline h-6 px-2 text-[12px]"
-                                    onClick={() =>
-                                        patchNode(selectedNode.id, {
-                                            depth: Math.min(
-                                                MIND_DEPTH_COLORS.length - 1,
-                                                selectedNode.depth + 1,
-                                            ),
-                                        })
-                                    }
-                                >
-                                    +
-                                </button>
+                {/* 右：画布 */}
+                <div className="relative min-h-0 flex-1" onDoubleClick={handleDoubleClick}>
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={handleConnect}
+                        defaultEdgeOptions={{ type: 'default' }}
+                        onNodeClick={(_event, node) => {
+                            setSelectedId(node.id);
+                            setSelectedEdgeId(null);
+                        }}
+                        onEdgeClick={(_event, edge) => {
+                            setSelectedEdgeId(edge.id);
+                            setSelectedId(null);
+                        }}
+                        onPaneClick={() => {
+                            setSelectedId(null);
+                            setSelectedEdgeId(null);
+                        }}
+                        nodeTypes={NODE_TYPES}
+                        fitView
+                        minZoom={0.3}
+                        maxZoom={1.8}
+                        proOptions={{ hideAttribution: true }}
+                    >
+                        <Background color="rgb(var(--ink-700))" gap={18} size={1.4} />
+                        <Controls showInteractive={false} position="bottom-left" />
+                    </ReactFlow>
+
+                    {/* 选中节点/连线的编辑面板 */}
+                    {selectedNode && (
+                        <div className="absolute right-3 top-3 w-60 rounded-lg border border-ink-800 bg-ink-900 p-3 shadow-lg">
+                            <p className="text-[12px] font-medium text-ink-400">节点编辑</p>
+                            <input
+                                className="field mt-2 w-full text-[13px]"
+                                value={selectedNode.title}
+                                onChange={(event) => patchNode(selectedNode.id, { title: event.target.value })}
+                            />
+                            <div className="mt-2 flex items-center justify-between">
+                                <span className="text-[12px] text-ink-400">层级</span>
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        className="btn-outline h-6 px-2 text-[12px]"
+                                        onClick={() =>
+                                            patchNode(selectedNode.id, {
+                                                depth: Math.max(0, selectedNode.depth - 1),
+                                            })
+                                        }
+                                    >
+                                        −
+                                    </button>
+                                    <span
+                                        className="rounded px-1.5 py-0.5 text-[12px] font-medium text-white"
+                                        style={{ backgroundColor: mindDepthColor(selectedNode.depth) }}
+                                    >
+                                        {selectedNode.depth === 0 ? '主题' : `L${selectedNode.depth}`}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className="btn-outline h-6 px-2 text-[12px]"
+                                        onClick={() =>
+                                            patchNode(selectedNode.id, {
+                                                depth: Math.min(
+                                                    MIND_DEPTH_COLORS.length - 1,
+                                                    selectedNode.depth + 1,
+                                                ),
+                                            })
+                                        }
+                                    >
+                                        +
+                                    </button>
+                                </div>
                             </div>
+                            <button
+                                type="button"
+                                className="btn-outline mt-2 w-full text-[12px]"
+                                onClick={() => focusNode(selectedNode.id)}
+                            >
+                                定位
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-outline mt-1.5 w-full text-[12px] text-red-400"
+                                onClick={deleteSelected}
+                            >
+                                删除节点
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            className="btn-outline mt-2 w-full text-[12px]"
-                            onClick={() => focusNode(selectedNode.id)}
-                        >
-                            定位
-                        </button>
-                        <button
-                            type="button"
-                            className="btn-outline mt-1.5 w-full text-[12px] text-red-400"
-                            onClick={deleteSelected}
-                        >
-                            删除节点
-                        </button>
-                    </div>
-                )}
+                    )}
 
-                {selectedEdge && !selectedNode && (
-                    <div className="absolute right-3 top-3 w-60 rounded-lg border border-ink-800 bg-ink-900 p-3 shadow-lg">
-                        <p className="text-[12px] font-medium text-ink-400">连线编辑</p>
-                        <input
-                            className="input mt-2 w-full text-[13px]"
-                            placeholder="连线文字，如「是/否」"
-                            value={typeof selectedEdge.label === 'string' ? selectedEdge.label : ''}
-                            onChange={(event) => patchEdgeLabel(selectedEdge.id, event.target.value)}
-                        />
-                        <button
-                            type="button"
-                            className="btn-outline mt-2 w-full text-[12px] text-red-400"
-                            onClick={deleteSelected}
-                        >
-                            删除连线
-                        </button>
-                    </div>
-                )}
+                    {selectedEdge && !selectedNode && (
+                        <div className="absolute right-3 top-3 w-60 rounded-lg border border-ink-800 bg-ink-900 p-3 shadow-lg">
+                            <p className="text-[12px] font-medium text-ink-400">连线编辑</p>
+                            <input
+                                className="field mt-2 w-full text-[13px]"
+                                placeholder="连线文字，如「是/否」"
+                                value={typeof selectedEdge.label === 'string' ? selectedEdge.label : ''}
+                                onChange={(event) => patchEdgeLabel(selectedEdge.id, event.target.value)}
+                            />
+                            <button
+                                type="button"
+                                className="btn-outline mt-2 w-full text-[12px] text-red-400"
+                                onClick={deleteSelected}
+                            >
+                                删除连线
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
         </main>
     );

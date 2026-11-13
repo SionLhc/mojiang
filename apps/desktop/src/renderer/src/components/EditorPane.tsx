@@ -1,7 +1,6 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { activeHeadingIndex, extractHeadings, getProjectFeatures, renderMarkdownToHtml } from '@mojiang/core';
 import CharacterView from '@/components/CharacterView';
-import DiagramView from '@/components/DiagramView';
 import ForeshadowView from '@/components/ForeshadowView';
 import Golden3View from '@/components/Golden3View';
 import LedgerView from '@/components/LedgerView';
@@ -169,9 +168,6 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     }
     if (activeView === 'sensitive') {
         return <SensitiveView />;
-    }
-    if (activeView === 'diagram') {
-        return <DiagramView />;
     }
     if (activeView === 'mindboard') {
         return <MindBoardView />;
