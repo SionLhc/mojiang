@@ -924,24 +924,6 @@ export default function ChatPanel() {
     const isNewNovel = isNovelProject && chapters.length === 0;
 
     /**
-     * 选文件添加附件：提取文本作为本轮对话的参考资料
-     */
-    async function pickAttachments(): Promise<void> {
-        try {
-            const result = await window.api.attachment.pick();
-            if (result.items.length > 0) {
-                // 一次最多带 5 个，多了上下文撑爆
-                setAttachments((previous) => [...previous, ...result.items].slice(0, 5));
-            }
-            for (const error of result.errors) {
-                pushToast('error', `${error.name || '附件'}：${error.message}`);
-            }
-        } catch (error) {
-            pushToast('error', errorMessage(error));
-        }
-    }
-
-    /**
      * 拖文件进输入框也能加附件
      * @param files 拖进来的文件
      */
@@ -1438,19 +1420,9 @@ export default function ChatPanel() {
                         ))}
                     </div>
                 )}
-                <div className="flex items-end gap-2">
-                    <button
-                        type="button"
-                        className="btn-ghost h-8 shrink-0 px-2 text-[15px]"
-                        onClick={() => void pickAttachments()}
-                        disabled={streaming}
-                        title="添加文档作为上下文：txt / md / 代码 / Word（docx）。图片暂不支持（当前模型读不了图）"
-                    >
-                        📎
-                    </button>
-                    <textarea
-                        className="field h-20 flex-1 resize-none text-[13px] leading-relaxed"
-                        placeholder="说你要什么。Enter 发送，Shift+Enter 换行。也可以把文档拖进来"
+                <textarea
+                        className="field h-20 w-full resize-none text-[13px] leading-relaxed"
+                        placeholder="说你要什么。Enter 发送，Shift+Enter 换行。文档/图片可以直接粘贴或拖进来"
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
                         onKeyDown={(event) => {
@@ -1484,7 +1456,6 @@ export default function ChatPanel() {
                             // 纯文本走默认粘贴
                         }}
                     />
-                </div>
                 <div className="mt-1.5 flex items-center justify-between">
                     <span className="text-[13px] text-ink-600">
                         {settings
