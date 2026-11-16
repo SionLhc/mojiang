@@ -980,43 +980,52 @@ export default function ChatPanel() {
 
     return (
         <div className="flex h-full flex-col overflow-hidden">
-            <div className="flex h-9 shrink-0 items-center justify-between border-b border-ink-800 px-3">
-                <label className="flex cursor-pointer items-center gap-1.5 text-[13px] text-ink-400">
-                    <input
-                        type="checkbox"
-                        className="h-3 w-3 accent-jade-500"
-                        checked={withChapter}
-                        onChange={(event) => setWithChapter(event.target.checked)}
-                    />
-                    {isNovelProject ? '带正文和细纲' : '带本章正文'}
-                </label>
-                <div className="flex items-center gap-2">
-                    {isNovelProject && (
+            {/* 顶部两行：开关/模型/清空 + 按细纲写本章（右栏窄，塞一行会挤成一团） */}
+            <div className="shrink-0 border-b border-ink-800 px-3 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                    <label
+                        className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[12px] text-ink-400"
+                        title={isNovelProject ? '带当前章正文和细纲作为上下文' : '带当前文档作为上下文'}
+                    >
+                        <input
+                            type="checkbox"
+                            className="h-3 w-3 accent-jade-500"
+                            checked={withChapter}
+                            onChange={(event) => setWithChapter(event.target.checked)}
+                        />
+                        {isNovelProject ? '正文+细纲' : '带本章正文'}
+                    </label>
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span
+                            className="truncate text-[12px] text-ink-500"
+                            title={settings ? settings.provider.model : ''}
+                        >
+                            {settings ? settings.provider.model : ''}
+                        </span>
                         <button
                             type="button"
-                            className="rounded border border-jade-600/40 px-2 py-0.5 text-[12px] text-jade-500 transition-colors hover:bg-jade-500/10 disabled:opacity-50"
-                            onClick={() => void startWriteChapter()}
-                            disabled={streaming}
-                            title="读本章细纲和全部工具，直接写出这一章正文"
+                            className="shrink-0 text-[12px] text-ink-500 hover:text-ink-300"
+                            onClick={handleClear}
                         >
-                            按细纲写本章
+                            清空
                         </button>
-                    )}
-                    <span className="text-[13px] text-ink-500">
-                        {settings ? settings.provider.model : ''}
-                    </span>
+                    </div>
+                </div>
+                {isNovelProject && (
                     <button
                         type="button"
-                        className="text-[13px] text-ink-500 hover:text-ink-300"
-                        onClick={handleClear}
+                        className="mt-1.5 w-full rounded border border-jade-600/40 py-0.5 text-[12px] text-jade-500 transition-colors hover:bg-jade-500/10 disabled:opacity-50"
+                        onClick={() => void startWriteChapter()}
+                        disabled={streaming}
+                        title="读本章细纲和全部工具，直接写出这一章正文"
                     >
-                        清空
+                        按细纲写本章
                     </button>
-                </div>
+                )}
             </div>
 
-            {/* 快捷指令：手边常做的几种改动，一键发起 */}
-            <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-ink-800 px-3 py-1.5">
+            {/* 快捷指令：手边常做的几种改动，一键发起；窄栏换行而不是横向滚动 */}
+            <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-ink-800 px-3 py-1.5">
                 {quickActions.map((action) => (
                     <button
                         key={action.key}
