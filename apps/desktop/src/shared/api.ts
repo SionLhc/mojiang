@@ -248,11 +248,18 @@ export interface MoJiangApi {
             items: Array<{ name: string; ext: string; text: string; chars: number; truncated: boolean }>;
             errors: Array<{ name: string; message: string }>;
         }>;
-        /** 按路径提取（拖拽进来的文件用） */
+        /** 按路径提取（拖拽/粘贴进来的文件用） */
         extract(filePaths: string[]): Promise<{
             items: Array<{ name: string; ext: string; text: string; chars: number; truncated: boolean }>;
             errors: Array<{ name: string; message: string }>;
         }>;
+        /** 取拖拽/粘贴文件的实际路径（Electron 32 起 File.path 已移除） */
+        pathForFile(file: File): string;
+        /** 图片识别：本地 OCR 提取图片里的文字 */
+        ocrImage(
+            bytes: Uint8Array,
+            mimeType: string,
+        ): Promise<{ ok: boolean; text: string; message?: string }>;
     };
     stats: {
         /** 读码字统计 */

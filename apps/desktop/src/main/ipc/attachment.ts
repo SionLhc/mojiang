@@ -6,6 +6,7 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { ATTACHMENT_EXTENSIONS, extractAttachments } from '../services/attachment';
 import { logError } from '../services/logger';
+import { ocrImageBuffer } from '../services/ocr';
 
 /** 文件选择框过滤器 */
 const OPEN_FILTERS = [
@@ -46,5 +47,19 @@ export function registerAttachmentIpc(): void {
         }
         const paths = filePaths.filter((item): item is string => typeof item === 'string');
         return extractAttachments(paths);
+    });
+
+    // 图片识别：粘贴的截图交给本地 OCR，认出文字后当附件用
+    ipcMain.handle('attachment:ocr', async (_event, bytes: unknown, mimeType: unknown) => {
+        const data =
+            bytes instanceof Uint8Array
+                ? bytes
+                : Array.isArray(bytes)
+                  ? new Uint8Array(bytes as number[])
+                  : null;
+        if (!data || data.length === 0) {
+            return { ok: false, text: '', message: '图片数据为空' };
+        }
+        return ocrImageBuffer(data, typeof mimeType === 'string' ? mimeType : 'image/png');
     });
 }

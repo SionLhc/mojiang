@@ -947,13 +947,21 @@ export default function ChatPanel() {
      */
     async function dropAttachments(files: FileList): Promise<void> {
         const list = [...files];
+        // Electron 32 起 File.path 已移除，必须走 webUtils（preload 暴露的 pathForFile）
         const paths = list
-            .map((file) => (file as File & { path?: string }).path ?? '')
+            .map((file) => {
+                try {
+                    return window.api.attachment.pathForFile(file);
+                } catch {
+                    return '';
+                }
+            })
             .filter((path) => path.length > 0);
         if (paths.length === 0) {
-            // 截图、网页图片这类没有真实路径的：明确提示，别静默无反应
-            if (list.some((file) => file.type.startsWith('image/'))) {
-                pushToast('info', '图片暂不支持：当前模型读不了图。把图里的文字复制过来就行');
+            // 没有真实路径的是截图/网页图片这类，直接走 OCR
+            const images = list.filter((file) => file.type.startsWith('image/'));
+            if (images.length > 0) {
+                await recognizeImages(images);
             }
             return;
         }
@@ -967,6 +975,43 @@ export default function ChatPanel() {
             }
         } catch (error) {
             pushToast('error', errorMessage(error));
+        }
+    }
+
+    /**
+     * 图片识别：用本地 OCR 把图里的文字提出来当附件
+     * 不需要视觉模型，Windows 自带引擎，离线可用
+     * @param images 图片文件
+     */
+    async function recognizeImages(images: File[]): Promise<void> {
+        pushToast('info', '正在识别图片里的文字…');
+        for (const file of images.slice(0, 3)) {
+            try {
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                const result = await window.api.attachment.ocrImage(
+                    bytes,
+                    file.type || 'image/png',
+                );
+                if (!result.ok) {
+                    pushToast('error', result.message ?? '图片识别失败');
+                    continue;
+                }
+                const text = result.text.trim();
+                setAttachments((previous) =>
+                    [
+                        ...previous,
+                        {
+                            name: `图片文字 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`,
+                            text,
+                            chars: text.length,
+                            truncated: false,
+                        },
+                    ].slice(0, 5),
+                );
+                pushToast('success', `已识别图片文字（${text.length} 字）`);
+            } catch (error) {
+                pushToast('error', errorMessage(error));
+            }
         }
     }
 
@@ -1420,23 +1465,21 @@ export default function ChatPanel() {
                             void dropAttachments(event.dataTransfer.files);
                         }}
                         onPaste={(event) => {
-                            // 从资源管理器复制的文件：直接变成附件，不用点 📎
+                            // 截图/复制的图片：本地 OCR 认字，直接变附件，不用点 📎
+                            const images = [...event.clipboardData.items]
+                                .filter((item) => item.type.startsWith('image/'))
+                                .map((item) => item.getAsFile())
+                                .filter((file): file is File => file !== null);
+                            if (images.length > 0) {
+                                event.preventDefault();
+                                void recognizeImages(images);
+                                return;
+                            }
+                            // 从资源管理器复制的文档：直接变成附件
                             const files = event.clipboardData.files;
                             if (files.length > 0) {
                                 event.preventDefault();
                                 void dropAttachments(files);
-                                return;
-                            }
-                            // 截图/图片：当前模型读不了图，明确告诉作者怎么处理
-                            const hasImage = [...event.clipboardData.items].some((item) =>
-                                item.type.startsWith('image/'),
-                            );
-                            if (hasImage) {
-                                event.preventDefault();
-                                pushToast(
-                                    'info',
-                                    '图片暂不支持：当前模型读不了图。把图里的文字复制过来就行',
-                                );
                             }
                             // 纯文本走默认粘贴
                         }}

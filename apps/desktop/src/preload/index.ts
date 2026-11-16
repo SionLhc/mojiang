@@ -3,7 +3,7 @@
  * 渲染进程只能看到这里列出的方法，没有 fs、没有 net、没有 child_process。
  */
 
-import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 import type { MoJiangApi } from '../shared/api';
 import type {
     AppPaths,
@@ -125,6 +125,20 @@ const api: MoJiangApi = {
     attachment: {
         pick: () => ipcRenderer.invoke('attachment:pick'),
         extract: (filePaths: string[]) => ipcRenderer.invoke('attachment:extract', filePaths),
+        /**
+         * 取拖拽/粘贴进来的文件真实路径
+         * Electron 32 起 File.path 已移除，必须走 webUtils
+         */
+        pathForFile: (file: unknown) => {
+            try {
+                return webUtils.getPathForFile(file as File);
+            } catch {
+                return '';
+            }
+        },
+        /** 图片识别：交给主进程做 OCR，返回文字 */
+        ocrImage: (bytes: Uint8Array, mimeType: string) =>
+            ipcRenderer.invoke('attachment:ocr', bytes, mimeType),
     },
     stats: {
         read: () => ipcRenderer.invoke('stats:read'),
