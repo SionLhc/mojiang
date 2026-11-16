@@ -3,6 +3,7 @@
  * 所有通道都在这里一次性挂上，方便审计"渲染进程能干什么"。
  */
 
+import { registerAttachmentIpc } from './attachment';
 import { registerDataIpc } from './data';
 import { registerExportIpc } from './export';
 import { registerImportIpc } from './import';
@@ -30,4 +31,5 @@ export function registerAllIpc(): void {
     registerWorkspaceIpc();
     registerStatsIpc();
     registerAppIpc();
+    registerAttachmentIpc();
 }

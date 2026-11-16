@@ -1,6 +1,6 @@
 {
     "name": "@mojiang/desktop",
-    "version": "1.10.2",
+    "version": "1.11.0",
     "private": true,
     "description": "墨匠 —— 本地网文创作工作台",
     "main": "./out/main/index.js",
@@ -38,6 +38,7 @@
         "zustand": "^4.5.5"
     },
     "dependencies": {
-        "@xyflow/react": "^12.12.1"
+        "@xyflow/react": "^12.12.1",
+        "mammoth": "^1.13.0"
     }
 }

@@ -10,14 +10,24 @@ import {
 } from '@mojiang/core';
 import type { ChatMessage } from '@mojiang/llm';
 import Modal from '@/components/Modal';
-import { errorMessage, formatCny } from '@/lib/format';
+import { errorMessage, formatCharCount, formatCny } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
+
+/** 一个已添加的附件（提取后的纯文本） */
+interface ChatAttachment {
+    name: string;
+    text: string;
+    chars: number;
+    truncated: boolean;
+}
 
 /** 一条聊天记录 */
 interface ChatItem {
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    /** 本条消息附带的文档名（只用于显示，内容已并进上下文） */
+    attachmentNames?: string[];
     /** 还在流式输出 */
     pending?: boolean;
     error?: boolean;
@@ -270,6 +280,8 @@ export default function ChatPanel() {
     const [bookTitleDraft, setBookTitleDraft] = useState('');
     /** 「生成章节和细纲」的预览数据，null 表示弹窗关着 */
     const [outlinePreview, setOutlinePreview] = useState<OutlineChapter[] | null>(null);
+    /** 本次要带给 AI 的文档附件（提取后的纯文本） */
+    const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
     const [session, setSession] = useState<SessionStats>(EMPTY_SESSION);
     /** 最近一次发送的上下文覆盖：发出去多少字 / 本章共多少字 */
     const [contextInfo, setContextInfo] = useState<{ sentChars: number; totalChars: number } | null>(
@@ -696,10 +708,29 @@ export default function ChatPanel() {
         }
 
         const context = await buildContext();
-        setContextInfo({ sentChars: context.sentChars, totalChars: context.totalChars });
+        // 附件并进上下文：本次发送的文档当作参考资料，气泡上只显示文件名
+        const attachmentBlock = attachments
+            .map(
+                (item) =>
+                    `【附件：${item.name}（${item.chars} 字${item.truncated ? '，已截断' : ''}）】\n${item.text}`,
+            )
+            .join('\n\n');
+        const contextBlock = [context.block, attachmentBlock]
+            .filter((part): part is string => (part ?? '').trim().length > 0)
+            .join('\n\n');
+        setContextInfo({
+            sentChars: context.sentChars + attachmentBlock.length,
+            totalChars: context.totalChars + attachmentBlock.length,
+        });
 
         const stamp = Date.now().toString(36);
-        const userItem: ChatItem = { id: `u_${stamp}`, role: 'user', content: input };
+        const userItem: ChatItem = {
+            id: `u_${stamp}`,
+            role: 'user',
+            content: input,
+            attachmentNames:
+                attachments.length > 0 ? attachments.map((item) => item.name) : undefined,
+        };
         const assistantItem: ChatItem = {
             id: `a_${stamp}`,
             role: 'assistant',
@@ -707,10 +738,12 @@ export default function ChatPanel() {
             pending: true,
             fromSelection: context.usedSelection,
         };
-        const messages = buildMessages(input, context.block);
+        const messages = buildMessages(input, contextBlock.length > 0 ? contextBlock : null);
 
         pendingReplyRef.current = '';
         setItems((previous) => [...previous, userItem, assistantItem]);
+        // 附件只在这一轮用，发完清掉；要再用就重新加
+        setAttachments([]);
         setStreaming(true);
 
         try {
@@ -889,6 +922,53 @@ export default function ChatPanel() {
 
     /** 新书：小说项目且还没有任何章节 → 显示开书引导 */
     const isNewNovel = isNovelProject && chapters.length === 0;
+
+    /**
+     * 选文件添加附件：提取文本作为本轮对话的参考资料
+     */
+    async function pickAttachments(): Promise<void> {
+        try {
+            const result = await window.api.attachment.pick();
+            if (result.items.length > 0) {
+                // 一次最多带 5 个，多了上下文撑爆
+                setAttachments((previous) => [...previous, ...result.items].slice(0, 5));
+            }
+            for (const error of result.errors) {
+                pushToast('error', `${error.name || '附件'}：${error.message}`);
+            }
+        } catch (error) {
+            pushToast('error', errorMessage(error));
+        }
+    }
+
+    /**
+     * 拖文件进输入框也能加附件
+     * @param files 拖进来的文件
+     */
+    async function dropAttachments(files: FileList): Promise<void> {
+        const list = [...files];
+        const paths = list
+            .map((file) => (file as File & { path?: string }).path ?? '')
+            .filter((path) => path.length > 0);
+        if (paths.length === 0) {
+            // 截图、网页图片这类没有真实路径的：明确提示，别静默无反应
+            if (list.some((file) => file.type.startsWith('image/'))) {
+                pushToast('info', '图片暂不支持：当前模型读不了图。把图里的文字复制过来就行');
+            }
+            return;
+        }
+        try {
+            const result = await window.api.attachment.extract(paths);
+            if (result.items.length > 0) {
+                setAttachments((previous) => [...previous, ...result.items].slice(0, 5));
+            }
+            for (const error of result.errors) {
+                pushToast('error', `${error.name || '附件'}：${error.message}`);
+            }
+        } catch (error) {
+            pushToast('error', errorMessage(error));
+        }
+    }
 
     /**
      * 开书第一步：让 AI 定书名和题材
@@ -1135,6 +1215,20 @@ export default function ChatPanel() {
                                     }`}
                                 >
                                     {parsed.body}
+                                    {/* 这条消息带了的文档附件（内容已并进上下文，这里只显示文件名） */}
+                                    {item.attachmentNames && item.attachmentNames.length > 0 && (
+                                        <div className="mt-1 flex flex-wrap gap-1 border-t border-jade-600/20 pt-1">
+                                            {item.attachmentNames.map((name) => (
+                                                <span
+                                                    key={name}
+                                                    className="max-w-[140px] truncate text-[11px] text-jade-500"
+                                                    title={name}
+                                                >
+                                                    📄 {name}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
                                     {/* 等待首个字时三点跳动，流式输出中末尾闪烁光标 */}
                                     {item.pending && parsed.body.length === 0 && (
                                         <span className="chat-typing" aria-label="正在生成">
@@ -1271,18 +1365,83 @@ export default function ChatPanel() {
                         {session.completionTokens} tokens · {formatCny(session.costCny)}
                     </span>
                 </div>
-                <textarea
-                    className="field h-20 resize-none text-[13px] leading-relaxed"
-                    placeholder="说你要什么。Enter 发送，Shift+Enter 换行"
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                        if (event.key === 'Enter' && !event.shiftKey) {
+                {/* 已添加的附件：文件名 + 字数，可单独移除 */}
+                {attachments.length > 0 && (
+                    <div className="mb-1.5 flex flex-wrap items-center gap-1">
+                        {attachments.map((item, index) => (
+                            <span
+                                key={`${item.name}-${index}`}
+                                className="flex items-center gap-1 rounded border border-jade-600/40 bg-jade-500/10 px-1.5 py-0.5 text-[12px] text-jade-500"
+                            >
+                                <span className="max-w-[120px] truncate" title={item.name}>
+                                    📄 {item.name}
+                                </span>
+                                <span className="text-ink-500">{formatCharCount(item.chars)}</span>
+                                <button
+                                    type="button"
+                                    className="text-ink-500 hover:text-red-400"
+                                    onClick={() =>
+                                        setAttachments((previous) =>
+                                            previous.filter((_, i) => i !== index),
+                                        )
+                                    }
+                                    title="移除这个附件"
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                )}
+                <div className="flex items-end gap-2">
+                    <button
+                        type="button"
+                        className="btn-ghost h-8 shrink-0 px-2 text-[15px]"
+                        onClick={() => void pickAttachments()}
+                        disabled={streaming}
+                        title="添加文档作为上下文：txt / md / 代码 / Word（docx）。图片暂不支持（当前模型读不了图）"
+                    >
+                        📎
+                    </button>
+                    <textarea
+                        className="field h-20 flex-1 resize-none text-[13px] leading-relaxed"
+                        placeholder="说你要什么。Enter 发送，Shift+Enter 换行。也可以把文档拖进来"
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                handleSend();
+                            }
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
                             event.preventDefault();
-                            handleSend();
-                        }
-                    }}
-                />
+                            void dropAttachments(event.dataTransfer.files);
+                        }}
+                        onPaste={(event) => {
+                            // 从资源管理器复制的文件：直接变成附件，不用点 📎
+                            const files = event.clipboardData.files;
+                            if (files.length > 0) {
+                                event.preventDefault();
+                                void dropAttachments(files);
+                                return;
+                            }
+                            // 截图/图片：当前模型读不了图，明确告诉作者怎么处理
+                            const hasImage = [...event.clipboardData.items].some((item) =>
+                                item.type.startsWith('image/'),
+                            );
+                            if (hasImage) {
+                                event.preventDefault();
+                                pushToast(
+                                    'info',
+                                    '图片暂不支持：当前模型读不了图。把图里的文字复制过来就行',
+                                );
+                            }
+                            // 纯文本走默认粘贴
+                        }}
+                    />
+                </div>
                 <div className="mt-1.5 flex items-center justify-between">
                     <span className="text-[13px] text-ink-600">
                         {settings

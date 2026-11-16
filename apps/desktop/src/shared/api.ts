@@ -242,6 +242,18 @@ export interface MoJiangApi {
             chapterNumber: number;
         }>;
     };
+    attachment: {
+        /** 打开系统选择框挑文档，返回提取后的纯文本（失败的项单独在 errors） */
+        pick(): Promise<{
+            items: Array<{ name: string; ext: string; text: string; chars: number; truncated: boolean }>;
+            errors: Array<{ name: string; message: string }>;
+        }>;
+        /** 按路径提取（拖拽进来的文件用） */
+        extract(filePaths: string[]): Promise<{
+            items: Array<{ name: string; ext: string; text: string; chars: number; truncated: boolean }>;
+            errors: Array<{ name: string; message: string }>;
+        }>;
+    };
     stats: {
         /** 读码字统计 */
         read(): Promise<WritingStats>;

@@ -122,6 +122,10 @@ const api: MoJiangApi = {
         context: (bookId: string, chapterId: string | null) =>
             ipcRenderer.invoke('writing:context', bookId, chapterId),
     },
+    attachment: {
+        pick: () => ipcRenderer.invoke('attachment:pick'),
+        extract: (filePaths: string[]) => ipcRenderer.invoke('attachment:extract', filePaths),
+    },
     stats: {
         read: () => ipcRenderer.invoke('stats:read'),
         record: (deltaChars: number, deltaSeconds: number) =>
