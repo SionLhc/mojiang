@@ -262,8 +262,21 @@ export default function ChatPanel() {
     /** 刚加载完记忆时跳过一次存盘，免得把历史原样写回去 */
     const skipNextMemorySave = useRef(true);
 
-    /** 当前文档的对话记忆 key：同一本书里每篇文档各记各的 */
-    const memoryKey = chapterId ? `${section}/${chapterId}` : null;
+    /** 是不是小说项目（老数据没有 kind 按小说算） */
+    const isNovelProject = !book?.kind || book.kind === 'novel';
+
+    /**
+     * 对话记忆的 key：
+     * 小说整本书共用一个对话——正文和细纲是同一条故事的两个面，切区不该换窗口；
+     * 文档/笔记按篇记忆，每篇各记各的
+     */
+    const memoryKey = !book
+        ? null
+        : isNovelProject
+          ? 'book'
+          : chapterId
+            ? `${section}/${chapterId}`
+            : null;
 
     // 切文档时加载对应的对话记忆，切回来还能接着聊
     useEffect(() => {
@@ -739,8 +752,6 @@ export default function ChatPanel() {
     // 快捷指令按项目类型切换：小说续写，工作文档补要点，笔记提炼
     const quickActions = useMemo(() => quickActionsFor(book?.kind), [book?.kind]);
 
-    /** 是不是小说项目（老数据没有 kind 按小说算） */
-    const isNovelProject = !book?.kind || book.kind === 'novel';
     /** 新书：小说项目且还没有任何章节 → 显示开书引导 */
     const isNewNovel = isNovelProject && chapters.length === 0;
 
@@ -957,7 +968,18 @@ export default function ChatPanel() {
                                               : 'bg-ink-850 text-ink-200'
                                     }`}
                                 >
-                                    {parsed.body || (item.pending ? '…' : '')}
+                                    {parsed.body}
+                                    {/* 等待首个字时三点跳动，流式输出中末尾闪烁光标 */}
+                                    {item.pending && parsed.body.length === 0 && (
+                                        <span className="chat-typing" aria-label="正在生成">
+                                            <span />
+                                            <span />
+                                            <span />
+                                        </span>
+                                    )}
+                                    {item.pending && parsed.body.length > 0 && (
+                                        <span className="chat-caret" aria-hidden="true" />
+                                    )}
                                 </div>
 
                                 {/* AI 给的选项：点一下就把该方案发给它 */}
