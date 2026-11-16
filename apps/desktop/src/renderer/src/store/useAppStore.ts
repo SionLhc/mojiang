@@ -83,6 +83,10 @@ interface AppStore {
     rightTab: 'health' | 'chat';
     /** 待注入 AI 对话输入框的内容（开写包"发给 AI"用） */
     pendingPrompt: string | null;
+    /** 编辑器里当前选中的文本，空字符串表示没有选中 */
+    editorSelection: string;
+    /** 待写回编辑器的文本（AI"替换选中"用），写完由编辑器消费掉 */
+    pendingReplace: string | null;
 
     /** 搜索面板 */
     searchOpen: boolean;
@@ -120,6 +124,12 @@ interface AppStore {
     saveLedger: (ledger: LedgerFile) => Promise<void>;
     saveForeshadow: (file: ForeshadowFile) => Promise<void>;
     setPendingPrompt: (text: string | null) => void;
+    /** 更新编辑器选中文本（相同值不触发更新） */
+    setEditorSelection: (text: string) => void;
+    /** 请求把文本替换到编辑器选区 */
+    requestReplace: (text: string) => void;
+    /** 编辑器写完清空替换请求 */
+    consumeReplace: () => void;
     restoreSnapshot: (fileName: string) => Promise<void>;
     /** 把一段文字追加到当前文档末尾并保存 */
     appendToChapter: (text: string) => Promise<void>;
@@ -170,6 +180,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     activeView: 'chapter',
     rightTab: 'health',
     pendingPrompt: null,
+    editorSelection: '',
+    pendingReplace: null,
     searchOpen: false,
     searchQuery: '',
     searchResult: null,
@@ -305,6 +317,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     setPendingPrompt: (text) => {
         set({ pendingPrompt: text });
+    },
+
+    setEditorSelection: (text) => {
+        // 光标随手一动就会调这里，值没变就不 set，免得整栏重渲染
+        if (get().editorSelection === text) {
+            return;
+        }
+        set({ editorSelection: text });
+    },
+
+    requestReplace: (text) => {
+        set({ pendingReplace: text });
+    },
+
+    consumeReplace: () => {
+        set({ pendingReplace: null });
     },
 
     appendToChapter: async (text) => {

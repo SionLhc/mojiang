@@ -25,6 +25,7 @@ import {
     layoutToMindBoard,
     mergeLayoutToMindBoard,
     mindBoardToOutline,
+    parseChatOptions,
     parsePlotDiagnosis,
     serializePlotForPrompt,
     computeTextMetrics,
@@ -142,6 +143,8 @@ export interface SelfTestResult {
     outlineOk: boolean;
     /** 画板增量同步是否只动变化部分 */
     mergeOk: boolean;
+    /** AI 回复的选项块解析是否正常 */
+    optionsOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
@@ -556,6 +559,16 @@ export function runSelfTest(): SelfTestResult {
         // 连线按新结构重建，两条
         mergedBoard.edges.length === 2;
 
+    // AI 回复的选项块：正文与选项分开，没有选项块时原样返回
+    const optionParsed = parseChatOptions('正文在这里。\n\n【选项】\n1. 方案甲\n2. 方案乙');
+    const noOptionParsed = parseChatOptions('只有正文，没有选项');
+    const optionsOk =
+        optionParsed.body === '正文在这里。' &&
+        optionParsed.options.length === 2 &&
+        optionParsed.options[0] === '方案甲' &&
+        noOptionParsed.body === '只有正文，没有选项' &&
+        noOptionParsed.options.length === 0;
+
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
     const mergedPrompt = composeSystemPrompt(basePrompt, '不要用形容词堆砌');
@@ -658,6 +671,7 @@ export function runSelfTest(): SelfTestResult {
         diagramOk: diagramOk && diagramBoardOk,
         outlineOk,
         mergeOk,
+        optionsOk,
         promptOk,
         plotOk,
         importOk,

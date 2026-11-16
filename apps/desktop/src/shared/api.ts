@@ -66,6 +66,8 @@ export interface SettingsView {
         promptTokens: number;
         completionTokens: number;
     };
+    /** AI 建议命中统计：采纳率 = adopted / suggestions */
+    aiStats: { suggestions: number; adopted: number };
     prices?: PriceRule[];
 }
 

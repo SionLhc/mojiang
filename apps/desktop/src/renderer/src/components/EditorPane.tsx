@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { activeHeadingIndex, extractHeadings, getProjectFeatures, renderMarkdownToHtml } from '@mojiang/core';
 import CharacterView from '@/components/CharacterView';
 import ForeshadowView from '@/components/ForeshadowView';
@@ -73,6 +73,9 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     const save = useAppStore((state) => state.save);
     const check = useAppStore((state) => state.check);
     const setDocumentTags = useAppStore((state) => state.setDocumentTags);
+    const setEditorSelection = useAppStore((state) => state.setEditorSelection);
+    const pendingReplace = useAppStore((state) => state.pendingReplace);
+    const consumeReplace = useAppStore((state) => state.consumeReplace);
 
     const [tagInput, setTagInput] = useState('');
     const [tagEditing, setTagEditing] = useState(false);
@@ -102,6 +105,15 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     const dirty = content !== savedContent;
     const fontSize = settings?.ui.fontSize ?? 17;
     const currentTags = chapter?.tags ?? [];
+
+    // AI 对话点「替换选中」后，把回复写回编辑器选区
+    useEffect(() => {
+        if (pendingReplace === null) {
+            return;
+        }
+        editorRef.current?.insertText(pendingReplace);
+        consumeReplace();
+    }, [pendingReplace, consumeReplace]);
 
     /**
      * 加一个标签：先落盘正文，避免写标签时把未保存的改动覆盖掉
@@ -341,6 +353,7 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
                             highlightOffsets={report?.lexicon.findings.map((finding) => finding.start) ?? []}
                             showLineNumbers={features.numberedFiles}
                             onViewportLine={setViewportLine}
+                            onSelectionChange={setEditorSelection}
                         />
                     </div>
                 </div>

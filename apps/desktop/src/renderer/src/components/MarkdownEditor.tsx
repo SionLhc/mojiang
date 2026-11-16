@@ -36,6 +36,8 @@ interface MarkdownEditorProps {
     showLineNumbers?: boolean;
     /** 视口顶部所在行变化时回调，供右侧大纲高亮 */
     onViewportLine?: (line: number) => void;
+    /** 选中文本变化时回调，供 AI 对话读取选区；清空选区时回调空字符串 */
+    onSelectionChange?: (text: string) => void;
 }
 
 /** frontmatter 块：从文件开头到第二个 --- */
@@ -143,6 +145,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
             highlightOffsets,
             showLineNumbers = true,
             onViewportLine,
+            onSelectionChange,
         },
         ref,
     ) {
@@ -152,6 +155,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
         onChangeRef.current = onChange;
         const onViewportLineRef = useRef(onViewportLine);
         onViewportLineRef.current = onViewportLine;
+        const onSelectionChangeRef = useRef(onSelectionChange);
+        onSelectionChangeRef.current = onSelectionChange;
 
     useEffect(() => {
         if (!hostRef.current) {
@@ -181,6 +186,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
                     EditorView.updateListener.of((update) => {
                         if (update.docChanged) {
                             onChangeRef.current(update.state.doc.toString());
+                        }
+                        // 选区或文档变化时上报选中文本，AI 对话据此读选区
+                        if (update.selectionSet || update.docChanged) {
+                            const { from, to } = update.state.selection.main;
+                            onSelectionChangeRef.current?.(
+                                from === to ? '' : update.state.sliceDoc(from, to),
+                            );
                         }
                     }),
                 ],

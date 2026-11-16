@@ -76,6 +76,14 @@ export interface UsageStats {
     completionTokens: number;
 }
 
+/** AI 建议命中统计（全局累计，用来算采纳率） */
+export interface AiStats {
+    /** AI 给出建议（完成回复）的次数 */
+    suggestions: number;
+    /** 被采纳（用到正文 / 替换选中 / 点选项）的次数 */
+    adopted: number;
+}
+
 /** 完整设置 */
 export interface AppSettings {
     version: number;
@@ -86,6 +94,8 @@ export interface AppSettings {
     ai: AiSettings;
     budget: BudgetSettings;
     usage: UsageStats;
+    /** AI 建议命中统计（采纳率） */
+    aiStats: AiStats;
     /** 自定义价格表，覆盖内置默认值 */
     prices?: PriceRule[];
 }
@@ -142,6 +152,10 @@ export function defaultSettings(): AppSettings {
             promptTokens: 0,
             completionTokens: 0,
         },
+        aiStats: {
+            suggestions: 0,
+            adopted: 0,
+        },
     };
 }
 
@@ -162,6 +176,7 @@ function mergeWithDefaults(raw: Partial<AppSettings>): AppSettings {
         ai: { ...base.ai, ...(raw.ai ?? {}) },
         budget: { ...base.budget, ...(raw.budget ?? {}) },
         usage: { ...base.usage, ...(raw.usage ?? {}) },
+        aiStats: { ...base.aiStats, ...(raw.aiStats ?? {}) },
         prices: raw.prices ?? base.prices,
     };
 }
