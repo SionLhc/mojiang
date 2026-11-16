@@ -130,6 +130,14 @@ interface AppStore {
     requestReplace: (text: string) => void;
     /** 编辑器写完清空替换请求 */
     consumeReplace: () => void;
+    /** 段落改写请求（编辑器 hover 标注后置入，ChatPanel 负责发 AI） */
+    segmentRequest: SegmentRewriteRequest | null;
+    /** 段落改写结果（ChatPanel 收到 AI 回复后置入，EditorPane 弹对比） */
+    segmentResult: SegmentRewriteResult | null;
+    requestSegmentRewrite: (request: SegmentRewriteRequest) => void;
+    clearSegmentRequest: () => void;
+    setSegmentResult: (result: SegmentRewriteResult) => void;
+    clearSegmentResult: () => void;
     restoreSnapshot: (fileName: string) => Promise<void>;
     /** 把一段文字追加到当前文档末尾并保存 */
     appendToChapter: (text: string) => Promise<void>;
@@ -160,6 +168,28 @@ interface AppStore {
 
 /** 提示条自增 id */
 let toastSequence = 0;
+
+/** 段落改写请求：编辑器里标注一段交给 AI 改 */
+export interface SegmentRewriteRequest {
+    /** 段落原文 */
+    text: string;
+    /** 作者的修改标注 */
+    note: string;
+    /** 文档内起止位置 */
+    from: number;
+    to: number;
+}
+
+/** 段落改写结果：AI 改完，编辑器弹对比 */
+export interface SegmentRewriteResult {
+    /** 原文（对比用） */
+    original: string;
+    /** AI 改后的文本 */
+    rewritten: string;
+    /** 文档内起止位置 */
+    from: number;
+    to: number;
+}
 
 /**
  * 细纲模板：菜单要写清楚这道菜是什么、用什么做的
@@ -232,6 +262,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     pendingPrompt: null,
     editorSelection: '',
     pendingReplace: null,
+    segmentRequest: null,
+    segmentResult: null,
     searchOpen: false,
     searchQuery: '',
     searchResult: null,
@@ -383,6 +415,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     consumeReplace: () => {
         set({ pendingReplace: null });
+    },
+
+    requestSegmentRewrite: (request) => {
+        set({ segmentRequest: request, segmentResult: null });
+    },
+
+    clearSegmentRequest: () => {
+        set({ segmentRequest: null });
+    },
+
+    setSegmentResult: (result) => {
+        set({ segmentResult: result });
+    },
+
+    clearSegmentResult: () => {
+        set({ segmentResult: null });
     },
 
     appendToChapter: async (text) => {

@@ -1,10 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { activeHeadingIndex, extractHeadings, getProjectFeatures, renderMarkdownToHtml } from '@mojiang/core';
 import CharacterView from '@/components/CharacterView';
 import ForeshadowView from '@/components/ForeshadowView';
 import Golden3View from '@/components/Golden3View';
 import LedgerView from '@/components/LedgerView';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor';
+import Modal from '@/components/Modal';
 import MarketView from '@/components/MarketView';
 import MaterialsView from '@/components/MaterialsView';
 import MindBoardView from '@/components/MindBoardView';
@@ -76,6 +77,22 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     const setEditorSelection = useAppStore((state) => state.setEditorSelection);
     const pendingReplace = useAppStore((state) => state.pendingReplace);
     const consumeReplace = useAppStore((state) => state.consumeReplace);
+    const requestSegmentRewrite = useAppStore((state) => state.requestSegmentRewrite);
+    const segmentResult = useAppStore((state) => state.segmentResult);
+    const clearSegmentResult = useAppStore((state) => state.clearSegmentResult);
+    const pushToast = useAppStore((state) => state.pushToast);
+
+    /** 鼠标悬停的段落（浮层定位用） */
+    const [hoverLine, setHoverLine] = useState<{
+        top: number;
+        left: number;
+        text: string;
+        from: number;
+        to: number;
+    } | null>(null);
+    /** 标注输入框是否展开 */
+    const [noteOpen, setNoteOpen] = useState(false);
+    const [noteDraft, setNoteDraft] = useState('');
 
     const [tagInput, setTagInput] = useState('');
     const [tagEditing, setTagEditing] = useState(false);
@@ -114,6 +131,98 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
         editorRef.current?.insertText(pendingReplace);
         consumeReplace();
     }, [pendingReplace, consumeReplace]);
+
+    /**
+     * 鼠标悬停段落：同一行不重复 set，避免无谓重渲染
+     * @param info 行信息，null 表示离开
+     */
+    const handleHoverLine = useCallback(
+        (
+            info: { top: number; left: number; text: string; from: number; to: number } | null,
+        ) => {
+            setHoverLine((previous) => {
+                if (info === null) {
+                    return null;
+                }
+                if (previous && previous.from === info.from && previous.to === info.to) {
+                    return previous;
+                }
+                return info;
+            });
+        },
+        [],
+    );
+
+    // 鼠标离开编辑器和浮层后收起浮层；标注框展开期间不动
+    useEffect(() => {
+        if (!hoverLine || noteOpen) {
+            return;
+        }
+        const handler = (event: MouseEvent): void => {
+            const target = event.target as HTMLElement;
+            if (target.closest('.cm-host') || target.closest('[data-segment-bar]')) {
+                return;
+            }
+            setHoverLine(null);
+        };
+        document.addEventListener('mousemove', handler);
+        return () => document.removeEventListener('mousemove', handler);
+    }, [hoverLine, noteOpen]);
+
+    /**
+     * 把标注发给 AI：段落原文 + 作者想怎么改
+     * AI 改完会回到 segmentResult，弹对比
+     */
+    function submitSegmentNote(): void {
+        if (!hoverLine) {
+            return;
+        }
+        requestSegmentRewrite({
+            text: hoverLine.text,
+            note: noteDraft.trim(),
+            from: hoverLine.from,
+            to: hoverLine.to,
+        });
+        setNoteOpen(false);
+        setNoteDraft('');
+        setHoverLine(null);
+        pushToast('info', '已发给 AI，改完会在这里对比');
+    }
+
+    /**
+     * 替换原文：位置可能因期间编辑而偏移，先按原文核对，找不到就作废
+     */
+    function applySegmentReplace(): void {
+        if (!segmentResult) {
+            return;
+        }
+        const { original, rewritten } = segmentResult;
+        // 防线：改后字数明显异常（老段落被扩写成新段落）先问一句
+        const ratio = original.length > 0 ? rewritten.length / original.length : 1;
+        if (rewritten.length > 40 && (ratio > 3 || ratio < 0.25)) {
+            const ok = window.confirm(
+                `原文 ${original.length} 字，改后 ${rewritten.length} 字，差距比较大。\n确定替换吗？`,
+            );
+            if (!ok) {
+                return;
+            }
+        }
+        let from = segmentResult.from;
+        let to = segmentResult.to;
+        if (content.slice(from, to) !== original) {
+            const found = content.indexOf(original);
+            if (found < 0) {
+                pushToast('error', '原文已经被改动过，这次改写作废');
+                clearSegmentResult();
+                return;
+            }
+            from = found;
+            to = found + original.length;
+        }
+        editorRef.current?.replaceRange(from, to, rewritten);
+        clearSegmentResult();
+        pushToast('success', '已替换这一段');
+    }
 
     /**
      * 加一个标签：先落盘正文，避免写标签时把未保存的改动覆盖掉
@@ -354,6 +463,7 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
                             showLineNumbers={features.numberedFiles}
                             onViewportLine={setViewportLine}
                             onSelectionChange={setEditorSelection}
+                            onHoverLine={handleHoverLine}
                         />
                     </div>
                 </div>
@@ -423,6 +533,112 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
             </footer>
 
             <VersionDialog open={versionOpen} onClose={() => setVersionOpen(false)} />
+
+            {/* 段落级 AI 修改：鼠标悬停段落出现入口，标注后发给 AI */}
+            {activeView === 'chapter' &&
+                hoverLine &&
+                (noteOpen ? (
+                    <div
+                        data-segment-bar
+                        className="fixed z-30 w-72 rounded-lg border border-ink-700 bg-ink-900 p-2 shadow-xl"
+                        style={{
+                            top: Math.min(hoverLine.top, window.innerHeight - 170),
+                            left: Math.min(hoverLine.left, window.innerWidth - 300),
+                        }}
+                    >
+                        <p className="mb-1 max-h-9 overflow-hidden text-[12px] leading-relaxed text-ink-500">
+                            {hoverLine.text.slice(0, 60)}
+                            {hoverLine.text.length > 60 ? '…' : ''}
+                        </p>
+                        <textarea
+                            className="field h-16 w-full resize-none text-[12px] leading-relaxed"
+                            placeholder="想怎么改？例如：太拖沓压紧一半；补一句环境细节；对白改成更硬的口气"
+                            autoFocus
+                            value={noteDraft}
+                            onChange={(event) => setNoteDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                    event.preventDefault();
+                                    submitSegmentNote();
+                                }
+                                if (event.key === 'Escape') {
+                                    setNoteOpen(false);
+                                }
+                            }}
+                        />
+                        <div className="mt-1 flex justify-end gap-1">
+                            <button
+                                type="button"
+                                className="btn-ghost h-6 px-2 text-[12px]"
+                                onClick={() => setNoteOpen(false)}
+                            >
+                                取消
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-primary h-6 px-2 text-[12px]"
+                                onClick={submitSegmentNote}
+                            >
+                                发给 AI
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        data-segment-bar
+                        className="fixed z-30 rounded-full border border-jade-600/50 bg-ink-900 px-2 py-0.5 text-[12px] text-jade-500 shadow-md transition-colors hover:bg-jade-500/10"
+                        style={{ top: hoverLine.top - 4, left: hoverLine.left }}
+                        onClick={() => {
+                            setNoteOpen(true);
+                            setNoteDraft('');
+                        }}
+                        title="标注这一段，让 AI 改（改完会先给你对比）"
+                    >
+                        ✦ AI 改这段
+                    </button>
+                ))}
+
+            {/* 原文 vs AI 改后：作者确认才替换 */}
+            <Modal
+                open={segmentResult !== null}
+                title="AI 改了这一段"
+                subtitle={
+                    segmentResult
+                        ? `原文 ${segmentResult.original.length} 字 → 改后 ${segmentResult.rewritten.length} 字；确认后才替换，放弃不影响正文`
+                        : ''
+                }
+                onClose={clearSegmentResult}
+                widthClass="max-w-3xl"
+                footer={
+                    <>
+                        <span className="mr-auto text-[13px] text-ink-500">
+                            {segmentResult ? `${segmentResult.rewritten.length} 字` : ''}
+                        </span>
+                        <button type="button" className="btn-ghost" onClick={clearSegmentResult}>
+                            放弃
+                        </button>
+                        <button type="button" className="btn-primary" onClick={applySegmentReplace}>
+                            替换原文
+                        </button>
+                    </>
+                }
+            >
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <p className="mb-1 text-[12px] text-ink-500">原文</p>
+                        <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded border border-ink-800 p-2 text-[13px] leading-relaxed text-ink-400">
+                            {segmentResult?.original ?? ''}
+                        </div>
+                    </div>
+                    <div>
+                        <p className="mb-1 text-[12px] text-jade-500">AI 改后</p>
+                        <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded border border-jade-600/40 bg-jade-500/5 p-2 text-[13px] leading-relaxed text-ink-100">
+                            {segmentResult?.rewritten ?? ''}
+                        </div>
+                    </div>
+                </div>
+            </Modal>
         </main>
     );
 }

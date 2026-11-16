@@ -106,6 +106,12 @@ const NOVEL_ACTIONS: QuickAction[] = [
         prompt: '检查下面这段的逻辑漏洞、重复表达和 AI 腔，分条列出问题，不要改正文。',
         needSelection: true,
     },
+    {
+        key: 'outlineCheck',
+        label: '对照细纲检查',
+        prompt: '对照本章细纲检查正文：细纲要写到的点是否都写了、有没有和细纲冲突、缺了哪些。分条列出问题，不要改正文。',
+        needSelection: false,
+    },
 ];
 
 /** 工作文档：重结构、术语和准确 */
@@ -251,6 +257,8 @@ export default function ChatPanel() {
 
     const pendingPrompt = useAppStore((state) => state.pendingPrompt);
     const setPendingPrompt = useAppStore((state) => state.setPendingPrompt);
+    const segmentRequest = useAppStore((state) => state.segmentRequest);
+    const clearSegmentRequest = useAppStore((state) => state.clearSegmentRequest);
 
     const [items, setItems] = useState<ChatItem[]>([]);
     const [draft, setDraft] = useState('');
@@ -276,6 +284,10 @@ export default function ChatPanel() {
     const bottomRef = useRef<HTMLDivElement | null>(null);
     /** 刚加载完记忆时跳过一次存盘，免得把历史原样写回去 */
     const skipNextMemorySave = useRef(true);
+    /** 正在等段落改写结果：记下位置和原文，AI 改完写 segmentResult */
+    const pendingSegmentRef = useRef<{ from: number; to: number; original: string } | null>(null);
+    /** 本轮流式回复的累积文本（段落改写结果从这拿） */
+    const pendingReplyRef = useRef('');
 
     /** 是不是小说项目（老数据没有 kind 按小说算） */
     const isNovelProject = !book?.kind || book.kind === 'novel';
@@ -390,6 +402,7 @@ export default function ChatPanel() {
             }
             if (event.type === 'chunk') {
                 const delta = event.delta ?? '';
+                pendingReplyRef.current += delta;
                 setItems((previous) =>
                     previous.map((item) =>
                         item.pending ? { ...item, content: item.content + delta } : item,
@@ -415,6 +428,18 @@ export default function ChatPanel() {
                 );
                 setStreaming(false);
                 currentRequestRef.current = null;
+                // 段落改写：AI 改完了，把结果交给编辑器弹对比
+                const pendingSegment = pendingSegmentRef.current;
+                if (pendingSegment) {
+                    pendingSegmentRef.current = null;
+                    useAppStore.getState().setSegmentResult({
+                        original: pendingSegment.original,
+                        rewritten: pendingReplyRef.current.trim(),
+                        from: pendingSegment.from,
+                        to: pendingSegment.to,
+                    });
+                }
+                pendingReplyRef.current = '';
                 // 会话统计：一条完成的回复算一次建议
                 setSession((previous) => ({
                     calls: previous.calls + 1,
@@ -446,6 +471,8 @@ export default function ChatPanel() {
                 );
                 setStreaming(false);
                 currentRequestRef.current = null;
+                pendingSegmentRef.current = null;
+                pendingReplyRef.current = '';
             }
         });
 
@@ -682,6 +709,7 @@ export default function ChatPanel() {
         };
         const messages = buildMessages(input, context.block);
 
+        pendingReplyRef.current = '';
         setItems((previous) => [...previous, userItem, assistantItem]);
         setStreaming(true);
 
@@ -807,8 +835,57 @@ export default function ChatPanel() {
         setContextInfo(null);
     }
 
+    // 编辑器里标注了段落要改：自动发给 AI，改完回编辑器弹对比
+    useEffect(() => {
+        if (!segmentRequest) {
+            return;
+        }
+        const { text, note, from, to } = segmentRequest;
+        clearSegmentRequest();
+        if (streaming) {
+            pushToast('info', 'AI 正在回复，等这一轮结束再试');
+            return;
+        }
+        pendingSegmentRef.current = { from, to, original: text };
+        void sendMessage(
+            `请只改写下面这一段，按我的标注处理。原文共 ${text.length} 字，改后字数要接近原文，` +
+                '不要扩写成别的内容、不要动其他段落。只输出改后的这一段文字本身，不要解释、不要加引号。\n' +
+                `\n我的标注：${note.length > 0 ? note : '（没写标注，按语境优化这一段）'}\n` +
+                `\n这一段原文：\n${text}`,
+        );
+    }, [segmentRequest, clearSegmentRequest, streaming, pushToast]);
+
     // 快捷指令按项目类型切换：小说续写，工作文档补要点，笔记提炼
     const quickActions = useMemo(() => quickActionsFor(book?.kind), [book?.kind]);
+
+    /**
+     * 按细纲写本章：读细纲 + 全部工具上下文，直接落进正文
+     * 没有细纲就不生成——先做菜单再做菜
+     */
+    async function startWriteChapter(): Promise<void> {
+        if (!book || streaming) {
+            return;
+        }
+        try {
+            const outlineList = await window.api.chapter.list(book.id, 'xigang');
+            const outlineText =
+                outlineList.length > 0
+                    ? await window.api.chapter.read(book.id, 'xigang', outlineList[0].id)
+                    : '';
+            if (outlineText.trim().length < 20) {
+                pushToast('info', '这一章还没有细纲。先让 AI 列大纲、写到细纲，再来写正文');
+                return;
+            }
+        } catch {
+            // 读不到细纲就让 AI 按已有上下文判断
+        }
+        const title = chapters.find((item) => item.id === chapterId)?.title ?? '本章';
+        void sendMessage(
+            `按《${title}》的细纲写这一章的正文，1500-2500 字。` +
+                '要求：按细纲要写的顺序和冲突展开；人物说话方式、伏笔、账本状态都以参考材料为准；' +
+                '只输出正文本身，不要输出标题行、不要解释、不要选项块。',
+        );
+    }
 
     /** 新书：小说项目且还没有任何章节 → 显示开书引导 */
     const isNewNovel = isNovelProject && chapters.length === 0;
@@ -914,6 +991,17 @@ export default function ChatPanel() {
                     {isNovelProject ? '带正文和细纲' : '带本章正文'}
                 </label>
                 <div className="flex items-center gap-2">
+                    {isNovelProject && (
+                        <button
+                            type="button"
+                            className="rounded border border-jade-600/40 px-2 py-0.5 text-[12px] text-jade-500 transition-colors hover:bg-jade-500/10 disabled:opacity-50"
+                            onClick={() => void startWriteChapter()}
+                            disabled={streaming}
+                            title="读本章细纲和全部工具，直接写出这一章正文"
+                        >
+                            按细纲写本章
+                        </button>
+                    )}
                     <span className="text-[13px] text-ink-500">
                         {settings ? settings.provider.model : ''}
                     </span>

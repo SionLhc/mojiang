@@ -38,6 +38,19 @@ interface MarkdownEditorProps {
     onViewportLine?: (line: number) => void;
     /** 选中文本变化时回调，供 AI 对话读取选区；清空选区时回调空字符串 */
     onSelectionChange?: (text: string) => void;
+    /**
+     * 鼠标悬停到某一段时回调，供"AI 改这段"浮层定位
+     * null 表示离开段落/空白行
+     */
+    onHoverLine?: (info: {
+        /** 行顶部（视口坐标） */
+        top: number;
+        /** 行末右侧（视口坐标） */
+        left: number;
+        text: string;
+        from: number;
+        to: number;
+    } | null) => void;
 }
 
 /** frontmatter 块：从文件开头到第二个 --- */
@@ -124,6 +137,8 @@ export interface MarkdownEditorHandle {
     prefixLine(prefix: string): void;
     /** 在光标处插入一段文本 */
     insertText(text: string): void;
+    /** 替换文档里的一段范围（段落改写用） */
+    replaceRange(from: number, to: number, text: string): void;
     /** 让编辑器拿回焦点 */
     focus(): void;
     /** 滚到指定行（行号从 1 开始） */
@@ -146,6 +161,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
             showLineNumbers = true,
             onViewportLine,
             onSelectionChange,
+            onHoverLine,
         },
         ref,
     ) {
@@ -157,6 +173,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
         onViewportLineRef.current = onViewportLine;
         const onSelectionChangeRef = useRef(onSelectionChange);
         onSelectionChangeRef.current = onSelectionChange;
+        const onHoverLineRef = useRef(onHoverLine);
+        onHoverLineRef.current = onHoverLine;
 
     useEffect(() => {
         if (!hostRef.current) {
@@ -202,7 +220,52 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
 
         viewRef.current = view;
 
+        // 鼠标悬停段落：上报行位置和文本，供「AI 改这段」浮层定位
+        let lastHoverAt = 0;
+        const hoverHandler = (event: MouseEvent): void => {
+            const now = Date.now();
+            // 80ms 节流，别让 setState 每帧都跑
+            if (now - lastHoverAt < 80) {
+                return;
+            }
+            lastHoverAt = now;
+            // 正在拖选文本时不弹浮层，避免和选区打架
+            if (!view.state.selection.main.empty) {
+                onHoverLineRef.current?.(null);
+                return;
+            }
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos === null) {
+                onHoverLineRef.current?.(null);
+                return;
+            }
+            const line = view.state.doc.lineAt(pos);
+            const lineText = line.text.trim();
+            // 空行和标题行（# 开头）不给 AI 改写入口：改的是正文段落，不是标题
+            if (lineText.length === 0 || lineText.startsWith('#')) {
+                onHoverLineRef.current?.(null);
+                return;
+            }
+            const coords = view.coordsAtPos(line.to);
+            if (!coords) {
+                onHoverLineRef.current?.(null);
+                return;
+            }
+            onHoverLineRef.current?.({
+                top: coords.top,
+                left: coords.right + 12,
+                text: line.text.trim(),
+                from: line.from,
+                to: line.to,
+            });
+        };
+        const hoverLeave = (): void => onHoverLineRef.current?.(null);
+        view.dom.addEventListener('mousemove', hoverHandler);
+        view.dom.addEventListener('mouseleave', hoverLeave);
+
         return () => {
+            view.dom.removeEventListener('mousemove', hoverHandler);
+            view.dom.removeEventListener('mouseleave', hoverLeave);
             view.destroy();
             viewRef.current = null;
         };
@@ -330,6 +393,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
                 view.dispatch({
                     changes: { from, to, insert: text },
                     selection: { anchor: from + text.length },
+                });
+                view.focus();
+            },
+            replaceRange(from: number, to: number, text: string) {
+                const view = viewRef.current;
+                if (!view) {
+                    return;
+                }
+                const total = view.state.doc.length;
+                const start = Math.max(0, Math.min(from, total));
+                const end = Math.max(start, Math.min(to, total));
+                view.dispatch({
+                    changes: { from: start, to: end, insert: text },
+                    selection: { anchor: start + text.length },
                 });
                 view.focus();
             },
