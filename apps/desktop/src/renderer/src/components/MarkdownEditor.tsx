@@ -259,13 +259,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
                 to: line.to,
             });
         };
-        const hoverLeave = (): void => onHoverLineRef.current?.(null);
         view.dom.addEventListener('mousemove', hoverHandler);
-        view.dom.addEventListener('mouseleave', hoverLeave);
+        // 注意：不要用 mouseleave 清空浮层——浮层按钮在编辑器容器外面（fixed 定位），
+        // 鼠标一移向按钮就会触发 mouseleave，按钮消失、浮层重建，看起来一直在闪。
+        // 离开编辑器后由 EditorPane 的 document mousemove 统一清理（含「在浮层上」的排除）。
 
         return () => {
             view.dom.removeEventListener('mousemove', hoverHandler);
-            view.dom.removeEventListener('mouseleave', hoverLeave);
             view.destroy();
             viewRef.current = null;
         };

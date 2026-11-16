@@ -154,19 +154,35 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     );
 
     // 鼠标离开编辑器和浮层后收起浮层；标注框展开期间不动
+    // 延迟 250ms 再收：给鼠标从行末移到浮层按钮留出时间，避免一闪一闪
     useEffect(() => {
         if (!hoverLine || noteOpen) {
             return;
         }
+        let timer: number | null = null;
         const handler = (event: MouseEvent): void => {
             const target = event.target as HTMLElement;
             if (target.closest('.cm-host') || target.closest('[data-segment-bar]')) {
+                if (timer !== null) {
+                    window.clearTimeout(timer);
+                    timer = null;
+                }
                 return;
             }
-            setHoverLine(null);
+            if (timer === null) {
+                timer = window.setTimeout(() => {
+                    timer = null;
+                    setHoverLine(null);
+                }, 250);
+            }
         };
         document.addEventListener('mousemove', handler);
-        return () => document.removeEventListener('mousemove', handler);
+        return () => {
+            document.removeEventListener('mousemove', handler);
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
+        };
     }, [hoverLine, noteOpen]);
 
     /**
