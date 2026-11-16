@@ -47,6 +47,21 @@ interface SessionStats {
 /** 上下文预算：整章太长时只发开头+结尾，控制 token 也防止被截断 */
 const MAX_CONTEXT_CHARS = 6000;
 
+/**
+ * 把超长文本压进预算：开头四成 + 结尾六成（结尾是最近写的，更重要）
+ * @param text 原文
+ * @param budget 字数预算
+ * @returns 压缩后的文本，未超预算原样返回
+ */
+function clipToBudget(text: string, budget: number): string {
+    if (text.length <= budget) {
+        return text;
+    }
+    const headLength = Math.floor(budget * 0.4);
+    const tailLength = budget - headLength;
+    return `${text.slice(0, headLength)}\n……（中间省略）……\n${text.slice(-tailLength)}`;
+}
+
 /** 预估输出长度，用于算钱 */
 const ESTIMATED_OUTPUT_TOKENS = 1500;
 
@@ -511,15 +526,17 @@ export default function ChatPanel() {
     }
 
     /**
-     * 组装上下文：有选中用选中，否则用整章（超预算截断）
+     * 组装上下文
+     * 小说：当前章正文 + 细纲一起带（同章细纲优先，没有就取第一篇/大纲），故事才连贯；
+     * 文档/笔记：只带当前文档；有选中片段时只围绕选中处理
      * @returns 上下文块与覆盖统计
      */
-    function buildContext(): {
+    async function buildContext(): Promise<{
         block: string | null;
         sentChars: number;
         totalChars: number;
         usedSelection: boolean;
-    } {
+    }> {
         const totalChars = content.length;
         const selected = selection.trim();
         if (selected.length > 0) {
@@ -531,25 +548,62 @@ export default function ChatPanel() {
                 usedSelection: true,
             };
         }
-        if (withChapter && content.trim().length > 0) {
-            if (content.length <= MAX_CONTEXT_CHARS) {
-                return {
-                    block: `【当前章节正文，只作参考，不要整段复述】\n${content}`,
-                    sentChars: content.length,
-                    totalChars,
-                    usedSelection: false,
-                };
+        if (!withChapter) {
+            return { block: null, sentChars: 0, totalChars, usedSelection: false };
+        }
+
+        // 小说：正文和细纲一起给，写正文要对齐细纲、改细纲要考虑已有正文
+        if (isNovelProject && book) {
+            const body = content.trim();
+            let outlineText = '';
+            try {
+                const outlineList = await window.api.chapter.list(book.id, 'xigang');
+                if (outlineList.length > 0) {
+                    // 同章细纲优先；没有对应章就取第一篇（新书通常只有「大纲」）
+                    const sameChapter = chapterId
+                        ? outlineList.find((item) => item.id === chapterId)
+                        : undefined;
+                    const target = sameChapter ?? outlineList[0];
+                    outlineText = (await window.api.chapter.read(book.id, 'xigang', target.id)).trim();
+                }
+            } catch {
+                // 细纲读不到就只带正文，不打断对话
             }
-            // 超预算：开头四成 + 结尾六成（结尾是最近写的，更重要）
-            const headLength = Math.floor(MAX_CONTEXT_CHARS * 0.4);
-            const tailLength = MAX_CONTEXT_CHARS - headLength;
-            const head = content.slice(0, headLength);
-            const tail = content.slice(-tailLength);
+
+            const parts: string[] = [];
+            let sentChars = 0;
+            if (body.length > 0) {
+                const clipped = clipToBudget(
+                    body,
+                    outlineText.length > 0 ? Math.floor(MAX_CONTEXT_CHARS * 0.55) : MAX_CONTEXT_CHARS,
+                );
+                parts.push(`【当前章正文】\n${clipped}`);
+                sentChars += clipped.length;
+            }
+            if (outlineText.length > 0) {
+                // 剩余预算给细纲，至少留 800 字，短正文时细纲能多带
+                const outlineBudget = Math.max(800, MAX_CONTEXT_CHARS - sentChars);
+                const clipped = clipToBudget(outlineText, outlineBudget);
+                parts.push(`【细纲/大纲】\n${clipped}`);
+                sentChars += clipped.length;
+            }
+            if (parts.length === 0) {
+                return { block: null, sentChars: 0, totalChars, usedSelection: false };
+            }
             return {
-                block:
-                    '【当前章节正文（太长，只截取开头和结尾，中间省略）】\n' +
-                    `${head}\n……（中间省略）……\n${tail}`,
-                sentChars: MAX_CONTEXT_CHARS,
+                block: `${parts.join('\n\n')}\n（正文和细纲要互相照顾：写正文对齐细纲，改细纲别和已有正文冲突）`,
+                sentChars,
+                totalChars: totalChars + outlineText.length,
+                usedSelection: false,
+            };
+        }
+
+        // 文档/笔记：只带当前文档
+        if (content.trim().length > 0) {
+            const clipped = clipToBudget(content, MAX_CONTEXT_CHARS);
+            return {
+                block: `【当前文档内容，只作参考，不要整段复述】\n${clipped}`,
+                sentChars: clipped.length,
                 totalChars,
                 usedSelection: false,
             };
@@ -610,7 +664,7 @@ export default function ChatPanel() {
             return;
         }
 
-        const context = buildContext();
+        const context = await buildContext();
         setContextInfo({ sentChars: context.sentChars, totalChars: context.totalChars });
 
         const stamp = Date.now().toString(36);
@@ -849,7 +903,7 @@ export default function ChatPanel() {
                         checked={withChapter}
                         onChange={(event) => setWithChapter(event.target.checked)}
                     />
-                    带本章正文
+                    {isNovelProject ? '带正文和细纲' : '带本章正文'}
                 </label>
                 <div className="flex items-center gap-2">
                     <span className="text-[13px] text-ink-500">
