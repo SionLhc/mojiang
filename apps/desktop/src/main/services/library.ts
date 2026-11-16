@@ -14,7 +14,12 @@ import {
 } from 'fs';
 import { join } from 'path';
 import { getProjectFeatures, type ProjectKind } from '@mojiang/core';
-import type { BookMeta, BookSummary, CreateBookInput } from '../../shared/types';
+import type {
+    BookMeta,
+    BookSummary,
+    CreateBookInput,
+    RecycleBookEntry,
+} from '../../shared/types';
 import { logError, logInfo } from './logger';
 import { bookPath, ensureBookDirs, getLibraryDir, getRecycleDir } from './paths';
 
@@ -248,19 +253,35 @@ export function deleteBook(bookId: string): string {
 }
 
 /**
- * 列出回收站里的书
- * @returns 目录名列表
+ * 列出回收站里的书，新的在前
+ * @returns 回收站条目（目录名、原书名、删除时间）
  */
-export function listRecycleBin(): string[] {
+export function listRecycleBin(): RecycleBookEntry[] {
     const recycleDir = getRecycleDir();
     if (!existsSync(recycleDir)) {
         return [];
     }
-    return readdirSync(recycleDir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort()
-        .reverse();
+    const list: RecycleBookEntry[] = [];
+    for (const entry of readdirSync(recycleDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        // 目录名格式 `书名__2026-11-16T01-22-22-412Z`，老数据拆不出来就原样显示
+        const matched = entry.name.match(
+            /^(.+)__(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/,
+        );
+        if (!matched) {
+            list.push({ folderName: entry.name, title: entry.name, deletedAt: '' });
+            continue;
+        }
+        list.push({
+            folderName: entry.name,
+            title: matched[1],
+            deletedAt: `${matched[2]}-${matched[3]}-${matched[4]}T${matched[5]}:${matched[6]}:${matched[7]}.${matched[8]}Z`,
+        });
+    }
+    list.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt));
+    return list;
 }
 
 /**

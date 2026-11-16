@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { formatCny } from '@/lib/format';
+import { toolViewsFor } from '@/lib/tools';
 import { useAppStore } from '@/store/useAppStore';
 
 /**
@@ -13,6 +15,13 @@ export default function TitleBar() {
     const saving = useAppStore((state) => state.saving);
     const content = useAppStore((state) => state.content);
     const savedContent = useAppStore((state) => state.savedContent);
+    const activeView = useAppStore((state) => state.activeView);
+    const setActiveView = useAppStore((state) => state.setActiveView);
+
+    /** 工具下拉是否展开 */
+    const [toolsOpen, setToolsOpen] = useState(false);
+    const tools = book ? toolViewsFor(book.kind) : [];
+    const activeTool = tools.find((tool) => tool.key === activeView);
 
     const currentChapter = chapters.find((item) => item.id === chapterId);
     const dirty = content !== savedContent;
@@ -63,6 +72,70 @@ export default function TitleBar() {
                         <circle cx="8" cy="17" r="2.2" fill="currentColor" stroke="none" />
                     </svg>
                 </button>
+                {/* 写作工具：按项目类型显隐，从顶栏进，侧栏底部不再放 */}
+                {book && tools.length > 0 && (
+                    <div className="relative">
+                        <button
+                            type="button"
+                            title="写作工具"
+                            className={`flex h-6 items-center gap-1 rounded px-2 text-[13px] transition-colors ${
+                                activeTool
+                                    ? 'bg-jade-500/15 text-jade-400'
+                                    : 'text-ink-400 hover:bg-ink-800 hover:text-ink-100'
+                            }`}
+                            onClick={() => setToolsOpen((value) => !value)}
+                        >
+                            工具{activeTool ? ` · ${activeTool.label}` : ''} ▾
+                        </button>
+                        {toolsOpen && (
+                            <>
+                                {/* 点空白处关闭 */}
+                                <div className="fixed inset-0 z-30" onClick={() => setToolsOpen(false)} />
+                                <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-lg border border-ink-700 bg-ink-900 p-1 shadow-xl">
+                                    {tools.map((tool) => {
+                                        // 小说用小说名，文档/笔记用通用名
+                                        const isNovelKind = !book.kind || book.kind === 'novel';
+                                        const label = isNovelKind
+                                            ? tool.label
+                                            : (tool.generalLabel ?? tool.label);
+                                        return (
+                                            <button
+                                                key={tool.key}
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveView(tool.key);
+                                                    setToolsOpen(false);
+                                                }}
+                                                className={`flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] transition-colors ${
+                                                    activeView === tool.key
+                                                        ? 'bg-jade-500/15 text-jade-400'
+                                                        : 'text-ink-300 hover:bg-ink-800 hover:text-ink-100'
+                                                }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
+                                    <div className="my-1 border-t border-ink-800" />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setActiveView('chapter');
+                                            setToolsOpen(false);
+                                        }}
+                                        className={`flex w-full items-center rounded px-2 py-1.5 text-left text-[13px] transition-colors ${
+                                            activeView === 'chapter'
+                                                ? 'bg-jade-500/15 text-jade-400'
+                                                : 'text-ink-300 hover:bg-ink-800 hover:text-ink-100'
+                                        }`}
+                                    >
+                                        回到正文
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
                 <button
                     type="button"
                     title="全局搜索 Ctrl+Shift+F"

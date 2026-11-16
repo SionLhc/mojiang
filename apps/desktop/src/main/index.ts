@@ -110,6 +110,14 @@ if (process.platform === 'win32') {
     app.setAppUserModelId('com.mojiang.desktop');
 }
 
+/**
+ * 说明：开发模式（@mojiang\desktop）和打包版（墨匠）的 userData 目录不同，
+ * safeStorage 的加密主密钥存在各目录的 Local State 里，Key 无法跨目录解密，
+ * 所以换运行方式后需要在设置里重填一次 Key（AI 面板会给出明确提示）。
+ * 不在运行时强行 setPath 合并目录：Chromium 单例锁按启动时的默认路径创建，
+ * 事后改 userData 会导致 Lock file can not be created（Error 32）。
+ */
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
     // 已经有实例在跑，直接退出，避免两个窗口同时写同一本书
@@ -143,7 +151,7 @@ if (!gotTheLock) {
         // 冒烟测试：验证主进程能起来、目录能建、渲染进程没白屏
         if (process.argv.includes('--smoke') && mainWindow) {
             try {
-                logInfo('核心算法自检结果', runSelfTest());
+                logInfo('核心算法自检结果', await runSelfTest());
                 logInfo('开写包自检结果', await runPackageSelfTest());
             } catch (error) {
                 logError('自检失败', error);

@@ -14,7 +14,7 @@ import {
     writeTags,
     type ProjectKind,
 } from '@mojiang/core';
-import type { ChapterSection, ChapterSummary, TreeNode } from '../../shared/types';
+import type { ChapterRecycleEntry, ChapterSection, ChapterSummary, TreeNode } from '../../shared/types';
 import { logError } from './logger';
 import { bookPath, ensureBookDirs } from './paths';
 import { writeSnapshot } from './snapshot';
@@ -390,9 +390,93 @@ export async function deleteChapter(
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const fileName = chapterId.split('/').pop() ?? chapterId;
-    const target = bookPath(bookId, '回收站', `${fileName}__${stamp}.md`);
+    // 文件名带上区前缀，恢复时知道该回正文还是细纲
+    const target = bookPath(bookId, '回收站', `${section}__${fileName}__${stamp}.md`);
     await mkdir(dirname(target), { recursive: true });
     await rename(path, target);
+}
+
+/** 回收站文件名：`区__标题__2026-11-16T01-22-22-412Z.md`，老数据没有区前缀 */
+const CHAPTER_RECYCLE_PATTERN =
+    /^(?:(zhengwen|xigang)__)?(.+)__(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.md$/;
+
+/**
+ * 列出本书回收站里的文章，新的在前
+ * @param bookId 书 id
+ * @returns 回收站条目
+ */
+export async function listChapterRecycle(bookId: string): Promise<ChapterRecycleEntry[]> {
+    const dir = bookPath(bookId, '回收站');
+    if (!existsSync(dir)) {
+        return [];
+    }
+    const entries = await readdir(dir, { withFileTypes: true });
+    const list: ChapterRecycleEntry[] = [];
+    for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.endsWith('.md')) {
+            continue;
+        }
+        const matched = entry.name.match(CHAPTER_RECYCLE_PATTERN);
+        if (!matched) {
+            continue;
+        }
+        let size = 0;
+        try {
+            size = (await stat(join(dir, entry.name))).size;
+        } catch {
+            // 文件刚好被手动挪走，跳过大小即可
+        }
+        list.push({
+            fileName: entry.name,
+            title: matched[2],
+            section: matched[1] === 'xigang' ? 'xigang' : 'zhengwen',
+            deletedAt: `${matched[3]}-${matched[4]}-${matched[5]}T${matched[6]}:${matched[7]}:${matched[8]}.${matched[9]}Z`,
+            size,
+        });
+    }
+    list.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt));
+    return list;
+}
+
+/**
+ * 从书内回收站恢复一篇文章，回到原来区的根目录；重名自动加后缀不覆盖
+ * @param bookId 书 id
+ * @param fileName 回收站里的文件名
+ * @returns 恢复后的章节 id（相对路径，不带 .md）
+ */
+export async function restoreChapterRecycle(bookId: string, fileName: string): Promise<string> {
+    if (
+        fileName.length === 0 ||
+        fileName.includes('..') ||
+        fileName.includes('/') ||
+        fileName.includes('\\') ||
+        fileName.includes(':')
+    ) {
+        throw new Error('文件名非法');
+    }
+    const source = bookPath(bookId, '回收站', fileName);
+    if (!existsSync(source)) {
+        throw new Error('回收站里没有这一项');
+    }
+    const matched = fileName.match(CHAPTER_RECYCLE_PATTERN);
+    const section: ChapterSection = matched?.[1] === 'xigang' ? 'xigang' : 'zhengwen';
+    const rawTitle = matched ? matched[2] : fileName.replace(/\.md$/, '');
+    const kind = readProjectKind(bookId);
+    const dirName = sectionDir(kind, section);
+    const baseTitle = safeFileTitle(rawTitle);
+
+    // 重名不覆盖：标题、标题-恢复1、标题-恢复2……
+    let chapterId = baseTitle;
+    let target = bookPath(bookId, dirName, `${chapterId}.md`);
+    let suffix = 0;
+    while (existsSync(target)) {
+        suffix += 1;
+        chapterId = `${baseTitle}-恢复${suffix}`;
+        target = bookPath(bookId, dirName, `${chapterId}.md`);
+    }
+    await mkdir(dirname(target), { recursive: true });
+    await rename(source, target);
+    return chapterId;
 }
 
 /**

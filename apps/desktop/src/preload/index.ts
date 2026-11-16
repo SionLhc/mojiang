@@ -40,6 +40,9 @@ const api: MoJiangApi = {
             ipcRenderer.invoke('chapter:setTags', bookId, section, chapterId, tags),
         remove: (bookId: string, section: ChapterSection, chapterId: string) =>
             ipcRenderer.invoke('chapter:remove', bookId, section, chapterId),
+        listRecycle: (bookId: string) => ipcRenderer.invoke('chapter:listRecycle', bookId),
+        restoreRecycle: (bookId: string, fileName: string) =>
+            ipcRenderer.invoke('chapter:restoreRecycle', bookId, fileName),
         snapshots: (bookId: string, section: ChapterSection, chapterId: string) =>
             ipcRenderer.invoke('chapter:snapshots', bookId, section, chapterId),
         readSnapshot: (

@@ -52,11 +52,12 @@ export interface UiSettings {
 
 /** AI 行为设置 */
 export interface AiSettings {
-    /**
-     * 附加到系统提示末尾的写作指令
-     * 会随每次请求一起发给模型，不是摆设
-     */
-    styleGuide: string;
+    /** 小说项目的附加写作指令（拼在小说内置规则后面） */
+    novelStyleGuide: string;
+    /** 工作文档项目的附加指令（技术文档、方案规划等） */
+    docsStyleGuide: string;
+    /** 笔记项目的附加指令 */
+    notesStyleGuide: string;
 }
 
 /** 预算设置 */
@@ -139,7 +140,9 @@ export function defaultSettings(): AppSettings {
             bodyFont: 'system',
         },
         ai: {
-            styleGuide: '',
+            novelStyleGuide: '',
+            docsStyleGuide: '',
+            notesStyleGuide: '',
         },
         budget: {
             perChapterLimitCny: 1,
@@ -160,6 +163,22 @@ export function defaultSettings(): AppSettings {
 }
 
 /**
+ * 合并 AI 指令设置
+ * 老版本只有一个全局 styleGuide，自动迁移到小说那一栏
+ * @param rawAi 读到的 ai 段
+ * @param base 默认 ai 段
+ * @returns 完整 ai 段
+ */
+function mergeAiSettings(rawAi: Partial<AiSettings> | undefined, base: AiSettings): AiSettings {
+    const legacy = (rawAi as { styleGuide?: string } | undefined)?.styleGuide ?? '';
+    return {
+        novelStyleGuide: rawAi?.novelStyleGuide ?? legacy,
+        docsStyleGuide: rawAi?.docsStyleGuide ?? base.docsStyleGuide,
+        notesStyleGuide: rawAi?.notesStyleGuide ?? base.notesStyleGuide,
+    };
+}
+
+/**
  * 把读到的设置和默认值合并
  * 逐层合并而不是整体替换，这样以后加字段老用户不会崩
  * @param raw 读到的原始对象
@@ -173,7 +192,7 @@ function mergeWithDefaults(raw: Partial<AppSettings>): AppSettings {
         provider: { ...base.provider, ...(raw.provider ?? {}) },
         writing: { ...base.writing, ...(raw.writing ?? {}) },
         ui: { ...base.ui, ...(raw.ui ?? {}) },
-        ai: { ...base.ai, ...(raw.ai ?? {}) },
+        ai: mergeAiSettings(raw.ai, base.ai),
         budget: { ...base.budget, ...(raw.budget ?? {}) },
         usage: { ...base.usage, ...(raw.usage ?? {}) },
         aiStats: { ...base.aiStats, ...(raw.aiStats ?? {}) },

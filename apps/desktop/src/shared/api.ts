@@ -17,6 +17,7 @@ import type {
     AppPaths,
     BookMeta,
     BookSummary,
+    ChapterRecycleEntry,
     ChapterSection,
     ChapterSummary,
     ConnectionResult,
@@ -28,6 +29,7 @@ import type {
     LlmStreamEvent,
     ProviderModels,
     QuickNoteResult,
+    RecycleBookEntry,
     SearchResult,
     SnapshotEntry,
     TreeNode,
@@ -55,8 +57,12 @@ export interface SettingsView {
         bodyFont: 'system' | 'song' | 'kai' | 'hei';
     };
     ai: {
-        /** 附加到系统提示的写作指令，会随每次请求发给模型 */
-        styleGuide: string;
+        /** 小说的附加写作指令，会随每次请求发给模型 */
+        novelStyleGuide: string;
+        /** 工作文档的附加指令 */
+        docsStyleGuide: string;
+        /** 笔记的附加指令 */
+        notesStyleGuide: string;
     };
     budget: { perChapterLimitCny: number; monthlyLimitCny: number };
     usage: {
@@ -103,9 +109,9 @@ export interface MoJiangApi {
         readMeta(bookId: string): Promise<BookMeta | null>;
         /** 保存元数据 */
         saveMeta(meta: BookMeta): Promise<void>;
-        /** 列回收站 */
-        listRecycleBin(): Promise<string[]>;
-        /** 从回收站恢复 */
+        /** 列回收站（原书名 + 删除时间，新的在前） */
+        listRecycleBin(): Promise<RecycleBookEntry[]>;
+        /** 从回收站恢复，返回恢复后的书 id */
         restore(folderName: string): Promise<string>;
     };
     chapter: {
@@ -132,6 +138,10 @@ export interface MoJiangApi {
             tags: string[],
         ): Promise<string>;
         remove(bookId: string, section: ChapterSection, chapterId: string): Promise<void>;
+        /** 列本书回收站里的文章，新的在前 */
+        listRecycle(bookId: string): Promise<ChapterRecycleEntry[]>;
+        /** 从本书回收站恢复一篇文章，返回恢复后的章节 id */
+        restoreRecycle(bookId: string, fileName: string): Promise<string>;
         /** 列快照 */
         snapshots(bookId: string, section: ChapterSection, chapterId: string): Promise<SnapshotEntry[]>;
         /** 读某份快照 */

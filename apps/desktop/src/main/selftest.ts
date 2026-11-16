@@ -25,7 +25,9 @@ import {
     layoutToMindBoard,
     mergeLayoutToMindBoard,
     mindBoardToOutline,
+    chatRolePrompt,
     parseChatOptions,
+    parseOutlineChapters,
     parsePlotDiagnosis,
     serializePlotForPrompt,
     computeTextMetrics,
@@ -62,11 +64,21 @@ import {
     type LedgerFile,
 } from '@mojiang/core';
 import { splitProseBlocks } from '@mojiang/core';
-import { writeJsonFile, writeTextFile } from './services/content';
+import {
+    createChapter,
+    deleteChapter,
+    listChapterRecycle,
+    readChapter,
+    restoreChapterRecycle,
+    writeChapter,
+    writeJsonFile,
+    writeTextFile,
+} from './services/content';
 import { splitChapters } from './services/import';
 import { buildDocx, buildEpub, buildPlainText, markdownToBlocks } from './services/export-format';
 import { createBook } from './services/library';
 import { buildWritingPackage } from './services/package-builder';
+import { logError } from './services/logger';
 import { getLibraryDir } from './services/paths';
 
 /** 自检用的样例正文，故意写得很"差"，把规则都触发一遍 */
@@ -143,8 +155,14 @@ export interface SelfTestResult {
     outlineOk: boolean;
     /** 画板增量同步是否只动变化部分 */
     mergeOk: boolean;
+    /** AI 大纲能否切成章节（正文骨架 + 细纲） */
+    outlineParseOk: boolean;
     /** AI 回复的选项块解析是否正常 */
     optionsOk: boolean;
+    /** 章节回收站删除→列表→恢复往返是否正常 */
+    recycleOk: boolean;
+    /** AI 角色提示是否按项目类型分开 */
+    roleOk: boolean;
     /** 作者指令是否真的拼进了系统提示 */
     promptOk: boolean;
     /** 剧情图的序列化与 AI 输出校验是否正常 */
@@ -242,9 +260,10 @@ export async function runPackageSelfTest(): Promise<PackageSelfTestResult> {
 
 /**
  * 跑一遍核心算法
+ * 含章节回收站往返，需要读写文件所以是异步的
  * @returns 结果摘要，主进程会把它写进日志
  */
-export function runSelfTest(): SelfTestResult {
+export async function runSelfTest(): Promise<SelfTestResult> {
     const metrics = computeTextMetrics(SAMPLE_TEXT);
     const lexicon = runLexiconCheck(SAMPLE_TEXT);
     const baseline = computeBaseline([{ chapterId: '001', metrics }]);
@@ -562,12 +581,36 @@ export function runSelfTest(): SelfTestResult {
     // AI 回复的选项块：正文与选项分开，没有选项块时原样返回
     const optionParsed = parseChatOptions('正文在这里。\n\n【选项】\n1. 方案甲\n2. 方案乙');
     const noOptionParsed = parseChatOptions('只有正文，没有选项');
+
+    // 大纲解析：AI 的「第X章」大纲要能切成章节，书名等杂项不能混进来
+    const parsedOutline = parseOutlineChapters(
+        '书名《测试》\n\n第一章 开端\n主角醒来。\n\n第二章 转折：他走了\n门开了。\n',
+    );
+    const outlineParseOk =
+        parsedOutline.length === 2 &&
+        parsedOutline[0].title === '第一章 开端' &&
+        parsedOutline[0].content === '主角醒来。' &&
+        parsedOutline[1].title === '第二章 转折：他走了' &&
+        parsedOutline[1].content === '门开了。';
     const optionsOk =
         optionParsed.body === '正文在这里。' &&
         optionParsed.options.length === 2 &&
         optionParsed.options[0] === '方案甲' &&
         noOptionParsed.body === '只有正文，没有选项' &&
         noOptionParsed.options.length === 0;
+
+    // AI 角色提示按项目类型分开：小说/文档/笔记各一套，选项块约定都保留
+    const novelRole = chatRolePrompt('novel');
+    const docsRole = chatRolePrompt('docs');
+    const notesRole = chatRolePrompt('notes');
+    const roleOk =
+        novelRole.includes('网文') &&
+        docsRole.includes('工作文档') &&
+        notesRole.includes('笔记') &&
+        novelRole !== docsRole &&
+        novelRole !== notesRole &&
+        docsRole !== notesRole &&
+        [novelRole, docsRole, notesRole].every((prompt) => prompt.includes('【选项】'));
 
     // 作者指令必须真的进到系统提示里，且排在内置规则之后
     const basePrompt = '你是写作助手，遵守硬规则。';
@@ -626,6 +669,43 @@ export function runSelfTest(): SelfTestResult {
         singleLineBlocks[0] === '第一段。' &&
         splitProseBlocks('   \n\n  ').length === 0;
 
+    // 章节回收站：删了能列出来，恢复后内容不丢、区归属正确；临时书用完即删
+    const recycleBookName = '__selftest_recycle__';
+    const recycleBookDir = join(getLibraryDir(), recycleBookName);
+    rmSync(recycleBookDir, { recursive: true, force: true });
+    let recycleOk = false;
+    try {
+        const recycleMeta = createBook({
+            title: recycleBookName,
+            genre: '测试',
+            chapterWordTarget: 3000,
+        });
+        const created = await createChapter(recycleMeta.id, 'zhengwen', '回收站测试章');
+        await writeChapter(recycleMeta.id, 'zhengwen', created.id, '这段内容删了要能捞回来', {
+            autoSnapshot: false,
+            keep: 0,
+        });
+        await deleteChapter(recycleMeta.id, 'zhengwen', created.id);
+        const recycleList = await listChapterRecycle(recycleMeta.id);
+        const restoredId = await restoreChapterRecycle(
+            recycleMeta.id,
+            recycleList[0]?.fileName ?? '',
+        );
+        const restoredText = await readChapter(recycleMeta.id, 'zhengwen', restoredId);
+        // 小说项目章节文件名是编号（001），回收站标题和恢复 id 都对得上编号才算通过
+        const fileBase = created.id.split('/').pop() ?? created.id;
+        recycleOk =
+            recycleList.length === 1 &&
+            recycleList[0].title === fileBase &&
+            recycleList[0].section === 'zhengwen' &&
+            restoredId === created.id &&
+            restoredText.includes('捞回来');
+    } catch (error) {
+        logError('回收站自检失败', error);
+    } finally {
+        rmSync(recycleBookDir, { recursive: true, force: true });
+    }
+
     return {
         charCount: metrics.charCount,
         lexiconScore: lexicon.score,
@@ -671,7 +751,10 @@ export function runSelfTest(): SelfTestResult {
         diagramOk: diagramOk && diagramBoardOk,
         outlineOk,
         mergeOk,
+        outlineParseOk,
         optionsOk,
+        recycleOk,
+        roleOk,
         promptOk,
         plotOk,
         importOk,

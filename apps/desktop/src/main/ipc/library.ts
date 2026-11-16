@@ -23,7 +23,9 @@ import {
     listFiles,
     readChapter,
     readJsonFile,
+    listChapterRecycle,
     readTextFile,
+    restoreChapterRecycle,
     writeChapter,
     writeJsonFile,
     writeTextFile,
@@ -199,6 +201,25 @@ export function registerContentIpc(): void {
             }
         },
     );
+
+    ipcMain.handle('chapter:listRecycle', async (_event, bookId: string) => {
+        try {
+            return await listChapterRecycle(assertBookId(bookId));
+        } catch (error) {
+            throw wrapError('读取回收站', error);
+        }
+    });
+
+    ipcMain.handle('chapter:restoreRecycle', async (_event, bookId: string, fileName: string) => {
+        try {
+            if (typeof fileName !== 'string' || fileName.length === 0) {
+                throw new Error('文件名非法');
+            }
+            return await restoreChapterRecycle(assertBookId(bookId), fileName);
+        } catch (error) {
+            throw wrapError('恢复文章', error);
+        }
+    });
 
     ipcMain.handle(
         'chapter:snapshots',

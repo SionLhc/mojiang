@@ -34,6 +34,12 @@ function secretsPath(): string {
 }
 
 /**
+ * 说明：safeStorage 的加密主密钥存放在各 userData 目录的 Local State 里，
+ * 直接把 secrets.json 从别的 userData 复制过来解不开，所以不做跨目录迁移。
+ * Key 找不到时由 IPC 层返回"还没配置 API Key"的中文提示，让作者重填即可。
+ */
+
+/**
  * 用本机信息派生 32 字节密钥，作为 safeStorage 不可用时的兜底
  * 这不是强保护（拿到本机文件仍可能被解），但明显好过明文
  * @returns 密钥 buffer

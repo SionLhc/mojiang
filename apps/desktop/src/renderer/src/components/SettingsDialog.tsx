@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { chatRolePrompt, type ProjectKind } from '@mojiang/core';
 import { DEFAULT_BASE_URLS, DEFAULT_MODELS, PROVIDER_INFO, type ProviderId } from '@mojiang/llm';
 import type { AppPaths, ConnectionResult } from '@shared/types';
 import Modal from '@/components/Modal';
+import RecycleDialog from '@/components/RecycleDialog';
 import {
     BODY_FONTS,
     THEMES,
@@ -30,6 +32,20 @@ const TABS: Array<{ key: SettingsTab; label: string }> = [
     { key: 'data', label: '数据' },
 ];
 
+/** 三类项目的附加指令示例，placeholder 各给各的 */
+const GUIDE_PLACEHOLDERS: Record<ProjectKind, string> = {
+    novel: '例如：\n- 保持第三人称限知视角，不写主角看不见的东西\n- 少用形容词堆砌，多用动作和对话推进\n- 对话要短，每个人说话方式要有区别\n- 不主动安排剧情转折，等我说',
+    docs: '例如：\n- 输出用 Markdown 表格对比方案\n- 术语用英文原文，首次出现给中文注释\n- 每个结论给出依据，不写客套话',
+    notes: '例如：\n- 笔记按主题归并，我的原始记录不要删\n- 行动项标出优先级和负责人\n- 看不清的地方宁可问我，不要猜',
+};
+
+/** AI 指令页的类型切换项 */
+const GUIDE_KINDS: Array<{ key: ProjectKind; label: string }> = [
+    { key: 'novel', label: '小说' },
+    { key: 'docs', label: '工作文档' },
+    { key: 'notes', label: '笔记' },
+];
+
 /**
  * 设置弹窗
  * 所有改动点"保存"才生效，避免手滑把 Key 或模型改坏
@@ -52,13 +68,20 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const [testResult, setTestResult] = useState<ConnectionResult | null>(null);
     const [paths, setPaths] = useState<AppPaths | null>(null);
     const [version, setVersion] = useState('');
+    /** 回收站弹窗（叠在设置之上） */
+    const [recycleOpen, setRecycleOpen] = useState(false);
 
     const [wordTarget, setWordTarget] = useState(3000);
     const [fontSize, setFontSize] = useState(17);
     const [theme, setTheme] = useState<ThemeId>('paper');
     const [uiScale, setUiScale] = useState(1);
     const [bodyFont, setBodyFont] = useState<BodyFontId>('system');
-    const [styleGuide, setStyleGuide] = useState('');
+    /** AI 指令页当前在编辑哪一类项目 */
+    const [guideKind, setGuideKind] = useState<ProjectKind>('novel');
+    /** 三套附加指令分开存：小说/文档/笔记互不串 */
+    const [novelGuide, setNovelGuide] = useState('');
+    const [docsGuide, setDocsGuide] = useState('');
+    const [notesGuide, setNotesGuide] = useState('');
     const [forbiddenWords, setForbiddenWords] = useState('');
     const [checklist, setChecklist] = useState('');
     const [perChapterLimit, setPerChapterLimit] = useState(1);
@@ -77,7 +100,11 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         setTheme(settings.ui.theme);
         setUiScale(settings.ui.uiScale);
         setBodyFont(settings.ui.bodyFont);
-        setStyleGuide(settings.ai.styleGuide);
+        // AI 指令默认停在当前项目的类型上，作者打开设置就能改自己那套
+        setGuideKind(useAppStore.getState().book?.kind ?? 'novel');
+        setNovelGuide(settings.ai.novelStyleGuide);
+        setDocsGuide(settings.ai.docsStyleGuide);
+        setNotesGuide(settings.ai.notesStyleGuide);
         setForbiddenWords(settings.writing.forbiddenWords.join('、'));
         setChecklist(settings.writing.checklist.join('\n'));
         setPerChapterLimit(settings.budget.perChapterLimitCny);
@@ -145,7 +172,11 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     perspective: settings.writing.perspective,
                 },
                 ui: { ...settings.ui, fontSize, theme, uiScale, bodyFont },
-                ai: { styleGuide },
+                ai: {
+                    novelStyleGuide: novelGuide,
+                    docsStyleGuide: docsGuide,
+                    notesStyleGuide: notesGuide,
+                },
                 budget: { perChapterLimitCny: perChapterLimit, monthlyLimitCny: monthlyLimit },
             });
             setApiKey('');
@@ -196,6 +227,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     }
 
     return (
+        <>
         <Modal
             open={open}
             title="设置"
@@ -447,28 +479,59 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             {tab === 'ai' && (
                 <div className="space-y-4">
                     <div>
-                        <p className="label">写作指令（会附加到每次 AI 请求的系统提示里）</p>
+                        <p className="label">附加指令（会拼在对应类型的内置规则后面）</p>
+                        {/* 三类项目各一套，互不影响：小说是小说，文档是文档，笔记是笔记 */}
+                        <div className="mb-2 flex items-center gap-1.5">
+                            {GUIDE_KINDS.map((item) => (
+                                <button
+                                    key={item.key}
+                                    type="button"
+                                    className={
+                                        guideKind === item.key
+                                            ? 'btn-outline h-7 text-[13px] text-jade-400'
+                                            : 'btn-ghost h-7 text-[13px]'
+                                    }
+                                    onClick={() => setGuideKind(item.key)}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
                         <textarea
-                            className="field h-44 resize-none leading-relaxed"
-                            placeholder={
-                                '例如：\n- 保持第三人称限知视角，不写主角看不见的东西\n- 少用形容词堆砌，多用动作和对话推进\n- 对话要短，每个人说话方式要有区别\n- 不主动安排剧情转折，等我说'
+                            className="field h-36 resize-none leading-relaxed"
+                            placeholder={GUIDE_PLACEHOLDERS[guideKind]}
+                            value={
+                                guideKind === 'docs'
+                                    ? docsGuide
+                                    : guideKind === 'notes'
+                                      ? notesGuide
+                                      : novelGuide
                             }
-                            value={styleGuide}
-                            onChange={(event) => setStyleGuide(event.target.value)}
+                            onChange={(event) => {
+                                const text = event.target.value;
+                                if (guideKind === 'docs') {
+                                    setDocsGuide(text);
+                                } else if (guideKind === 'notes') {
+                                    setNotesGuide(text);
+                                } else {
+                                    setNovelGuide(text);
+                                }
+                            }}
                         />
                         <p className="mt-1.5 text-[13px] leading-relaxed text-ink-500">
-                            这段内容会和内置规则一起发给模型，每一轮对话都生效。留空就只用内置规则。
+                            三类项目各存各的指令，只在该类型的项目里生效。留空就只用内置规则。
                             改完点保存，下一句对话立刻按新指令走。
                         </p>
                     </div>
 
                     <div className="rounded-md border border-ink-800 bg-ink-850 p-3">
-                        <p className="text-[13px] text-ink-400">内置规则（不可改，永远在最前面）</p>
-                        <ul className="mt-1.5 space-y-1 text-[13px] text-ink-500">
-                            <li>· 不替作者决定剧情走向，需要决定时先问一句</li>
-                            <li>· 按作者给的章纲和开写包写，不自由发挥</li>
-                            <li>· 不整段复述已有正文</li>
-                        </ul>
+                        <p className="text-[13px] text-ink-400">
+                            内置规则（不可改，永远在最前面；当前显示「
+                            {GUIDE_KINDS.find((item) => item.key === guideKind)?.label}」这一套）
+                        </p>
+                        <p className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-ink-500">
+                            {chatRolePrompt(guideKind)}
+                        </p>
                     </div>
                 </div>
             )}
@@ -599,6 +662,13 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                         <p className="text-[13px] leading-relaxed text-ink-400">
                             删掉的书和章节会先挪到「回收站」，不会立刻消失。彻底清理需要手动删文件夹。
                         </p>
+                        <button
+                            type="button"
+                            className="btn-outline mt-2 text-[13px]"
+                            onClick={() => setRecycleOpen(true)}
+                        >
+                            打开回收站
+                        </button>
                     </div>
 
                     <div>
@@ -615,5 +685,9 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 </div>
             )}
         </Modal>
+
+        {/* 回收站：叠在设置弹窗之上 */}
+        <RecycleDialog open={recycleOpen} onClose={() => setRecycleOpen(false)} />
+        </>
     );
 }

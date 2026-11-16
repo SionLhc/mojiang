@@ -165,11 +165,16 @@ body {
     -webkit-app-region: no-drag;
 }
 
-/* CodeMirror 铺满中栏；三层都设透明，否则浅色主题会透出默认的白底 */
+/* CodeMirror 铺满中栏；两层设透明，否则浅色主题会透出默认的白底 */
+/* 注意：.cm-content 不能设 height——它的高度必须由内容自然撑开。
+   锁死 100% 会让长文档的滚动高度算错，超出的行显示不出来 */
 .cm-host .cm-editor,
-.cm-host .cm-scroller,
-.cm-host .cm-content {
+.cm-host .cm-scroller {
     height: 100%;
+    background: transparent;
+}
+
+.cm-host .cm-content {
     background: transparent;
 }
 

@@ -16,7 +16,7 @@ import {
 import type { CostEstimate } from '../../shared/api';
 import type { LlmChatParams, LlmStreamEvent, ProviderModels } from '../../shared/types';
 import { logError, logInfo } from '../services/logger';
-import { getApiKey } from '../services/secrets';
+import { getApiKey, hasApiKey } from '../services/secrets';
 import { loadSettings, recordUsage } from '../services/settings';
 
 /** 正在进行的请求，用于取消 */
@@ -57,6 +57,10 @@ export function registerLlmIpc(): void {
     ipcMain.handle(
         'llm:test',
         async (_event, providerId: ProviderId, baseUrl: string): Promise<{ ok: boolean; message: string }> => {
+            // 没填 Key 就别发了，服务商只会回一句英文鉴权错误
+            if (!hasApiKey(providerId)) {
+                return { ok: false, message: '还没配置 API Key，先在上面填一个再测试' };
+            }
             try {
                 const provider = buildProvider(providerId, baseUrl);
                 return await provider.testConnection();
@@ -123,6 +127,14 @@ export function registerLlmIpc(): void {
 
         if (!params || typeof params.requestId !== 'string' || !Array.isArray(params.messages)) {
             return { accepted: false, message: '调用参数不完整' };
+        }
+
+        // 没配 Key 就别发请求：给一句能看懂的中文提示，别让服务商甩鉴权失败的英文
+        if (!hasApiKey(params.providerId)) {
+            return {
+                accepted: false,
+                message: '还没配置 API Key，去「设置 → 模型」里填一下再试',
+            };
         }
 
         let provider;

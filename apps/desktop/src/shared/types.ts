@@ -182,6 +182,30 @@ export interface ProviderModels {
     models: Array<{ id: string; name: string }>;
 }
 
+/** 回收站里的一本书 */
+export interface RecycleBookEntry {
+    /** 回收站里的目录名，恢复时传这个 */
+    folderName: string;
+    /** 原书名 */
+    title: string;
+    /** 删除时间，ISO 字符串；解析不出为空串 */
+    deletedAt: string;
+}
+
+/** 本书回收站里的一篇文章 */
+export interface ChapterRecycleEntry {
+    /** 回收站里的文件名（含时间戳后缀），恢复时传这个 */
+    fileName: string;
+    /** 原标题 */
+    title: string;
+    /** 原来属于哪个区 */
+    section: ChapterSection;
+    /** 删除时间，ISO 字符串 */
+    deletedAt: string;
+    /** 字节数 */
+    size: number;
+}
+
 /** 导出格式 */
 export type ExportFormat = 'txt' | 'markdown' | 'docx' | 'epub';
 

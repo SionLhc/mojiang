@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { PROJECT_KINDS, getProjectFeatures, type ProjectKind } from '@mojiang/core';
 import DocumentTree from '@/components/DocumentTree';
+import RecycleDialog from '@/components/RecycleDialog';
 import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { collectTags, filterTreeByTag } from '@/lib/tree';
-import { useAppStore, type WorkspaceView } from '@/store/useAppStore';
+import { useAppStore } from '@/store/useAppStore';
 import type { ChapterSection } from '@shared/types';
 
 /** 侧边栏属性 */
@@ -12,38 +13,6 @@ interface SidebarProps {
     onOpenSettings: () => void;
     onOpenExport: () => void;
 }
-
-/** 工具视图入口，按项目类型过滤后才显示 */
-const TOOL_VIEWS: Array<{
-    key: WorkspaceView;
-    label: string;
-    /** 非小说项目用的名字，不填就沿用 label */
-    generalLabel?: string;
-    feature:
-        | 'ledger'
-        | 'foreshadow'
-        | 'characters'
-        | 'golden3'
-        | 'writingPackage'
-        | 'market'
-        | 'plot'
-        | 'stats'
-        | 'materials'
-        | 'sensitive'
-        | 'mindboard';
-}> = [
-    { key: 'plot', label: '剧情编排', generalLabel: '画板', feature: 'plot' },
-    { key: 'ledger', label: '账本', feature: 'ledger' },
-    { key: 'foreshadow', label: '伏笔', feature: 'foreshadow' },
-    { key: 'characters', label: '人设', feature: 'characters' },
-    { key: 'golden3', label: '三章诊断', feature: 'golden3' },
-    { key: 'package', label: '开写包', feature: 'writingPackage' },
-    { key: 'market', label: '市场调研', feature: 'market' },
-    { key: 'stats', label: '码字统计', feature: 'stats' },
-    { key: 'materials', label: '素材卡片', feature: 'materials' },
-    { key: 'sensitive', label: '敏感词', feature: 'sensitive' },
-    { key: 'mindboard', label: '导图画板', generalLabel: '导图画板', feature: 'mindboard' },
-];
 
 /** 书库排序方式 */
 type BookSort = 'recent' | 'chars' | 'title';
@@ -67,7 +36,6 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
     const chapterId = useAppStore((state) => state.chapterId);
     const content = useAppStore((state) => state.content);
     const savedContent = useAppStore((state) => state.savedContent);
-    const activeView = useAppStore((state) => state.activeView);
     const activeTag = useAppStore((state) => state.activeTag);
 
     const openBook = useAppStore((state) => state.openBook);
@@ -80,7 +48,6 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
     const openChapter = useAppStore((state) => state.openChapter);
     const createChapter = useAppStore((state) => state.createChapter);
     const removeChapter = useAppStore((state) => state.removeChapter);
-    const setActiveView = useAppStore((state) => state.setActiveView);
     const createFolder = useAppStore((state) => state.createFolder);
     const setActiveTag = useAppStore((state) => state.setActiveTag);
 
@@ -91,6 +58,12 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
 
     const [docInputOpen, setDocInputOpen] = useState(false);
     const [docTitle, setDocTitle] = useState('');
+    /** 书内回收站弹窗 */
+    const [recycleOpen, setRecycleOpen] = useState(false);
+    /** 双击改书名的编辑态 */
+    const [renamingTitle, setRenamingTitle] = useState(false);
+    const [titleDraft, setTitleDraft] = useState('');
+    const updateBookTitle = useAppStore((state) => state.updateBookTitle);
     const [folderInputOpen, setFolderInputOpen] = useState(false);
     const [folderName, setFolderName] = useState('');
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -119,10 +92,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
 
     const tags = useMemo(() => collectTags(tree), [tree]);
     const visibleTree = useMemo(() => filterTreeByTag(tree, activeTag), [tree, activeTag]);
-    const visibleTools = useMemo(
-        () => TOOL_VIEWS.filter((tool) => features[tool.feature]),
-        [features],
-    );
+
 
     /**
      * 建项目
@@ -449,9 +419,36 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                     </svg>
                     <span className="text-[13px]">书库</span>
                 </button>
-                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink-100">
-                    {book.title}
-                </span>
+                {/* 双击书名可改：AI 定了书名后在这里落一下，不用复制 */}
+                {renamingTitle ? (
+                    <input
+                        className="field h-6 min-w-0 flex-1 text-[13px]"
+                        autoFocus
+                        value={titleDraft}
+                        onChange={(event) => setTitleDraft(event.target.value)}
+                        onBlur={() => setRenamingTitle(false)}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                                void updateBookTitle(titleDraft);
+                                setRenamingTitle(false);
+                            }
+                            if (event.key === 'Escape') {
+                                setRenamingTitle(false);
+                            }
+                        }}
+                    />
+                ) : (
+                    <span
+                        className="min-w-0 flex-1 cursor-text truncate text-[14px] font-medium text-ink-100"
+                        title="双击改书名"
+                        onDoubleClick={() => {
+                            setTitleDraft(book.title);
+                            setRenamingTitle(true);
+                        }}
+                    >
+                        {book.title}
+                    </span>
+                )}
                 <span
                     className={`shrink-0 rounded px-1 py-0.5 text-[13px] ${KIND_TONE[book.kind ?? 'novel']}`}
                 >
@@ -567,6 +564,16 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                     </button>
                 )}
 
+                {/* 书内回收站：删掉的章节在这里捞回来 */}
+                <button
+                    type="button"
+                    className="btn-ghost w-full justify-start text-[13px]"
+                    onClick={() => setRecycleOpen(true)}
+                    title="删掉的章节/细纲在这里可以恢复"
+                >
+                    回收站
+                </button>
+
                 {/* 新建文件夹，仅非小说类型需要 */}
                 {!features.numberedFiles &&
                     (folderInputOpen ? (
@@ -604,30 +611,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                         </button>
                     ))}
 
-                {/* 写作工具，按项目类型显隐 */}
-                {visibleTools.length > 0 && (
-                    <>
-                        <p className="px-1 pt-1 text-[13px] tracking-wider text-ink-600">工具</p>
-                        <div className="grid grid-cols-2 gap-1">
-                            {visibleTools.map((tool) => (
-                                <button
-                                    type="button"
-                                    key={tool.key}
-                                    onClick={() => setActiveView(tool.key)}
-                                    className={`rounded-md px-1 py-1.5 text-[13px] transition-colors ${
-                                        activeView === tool.key
-                                            ? 'bg-jade-500/15 text-jade-400'
-                                            : 'bg-ink-850 text-ink-300 hover:bg-ink-800 hover:text-ink-100'
-                                    }`}
-                                >
-                                    {tool.generalLabel && !features.beatSheet
-                                        ? tool.generalLabel
-                                        : tool.label}
-                                </button>
-                            ))}
-                        </div>
-                    </>
-                )}
+                {/* 写作工具已挪到顶栏「工具」菜单 */}
 
                 {features.outline8 && (
                     <button
@@ -653,6 +637,9 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                     设置
                 </button>
             </div>
+
+            {/* 书内回收站弹窗（章节模式） */}
+            <RecycleDialog open={recycleOpen} onClose={() => setRecycleOpen(false)} bookId={book.id} />
         </aside>
     );
 }

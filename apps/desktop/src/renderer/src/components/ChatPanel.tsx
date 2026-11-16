@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { composeSystemPrompt, parseChatOptions, splitProseBlocks } from '@mojiang/core';
+import {
+    chatRolePrompt,
+    composeSystemPrompt,
+    parseChatOptions,
+    parseOutlineChapters,
+    splitProseBlocks,
+    type OutlineChapter,
+    type ProjectKind,
+} from '@mojiang/core';
 import type { ChatMessage } from '@mojiang/llm';
 import Modal from '@/components/Modal';
 import { errorMessage, formatCny } from '@/lib/format';
@@ -39,22 +47,6 @@ interface SessionStats {
 /** 上下文预算：整章太长时只发开头+结尾，控制 token 也防止被截断 */
 const MAX_CONTEXT_CHARS = 6000;
 
-/** 系统提示：把"作者主导"写成硬规则，不是口号 */
-const SYSTEM_PROMPT = [
-    '你是「墨匠」里的中文网文写作助手。作者主导，你只负责按指令写和改。',
-    '硬规则：',
-    '1. 不替作者决定剧情走向，需要决定时给选项让作者选，不要自作主张。',
-    '2. 续写时紧贴给出的正文，句长和用词习惯要接得上，不要突然变文风。',
-    '3. 不写章末总结升华，不直接报情绪名（例如"他很愤怒"），用动作和细节写。',
-    '4. 不编造上下文里没有的设定、人物和伏笔。缺信息就直接问。',
-    '5. 输出正文时不要加解释、不要加"以下是"之类的开场。',
-    '6. 需要作者做选择时（剧情走向、改法方向等），在回复最后单独加一个选项块，格式严格如下：',
-    '【选项】',
-    '1. 具体方案一',
-    '2. 具体方案二',
-    '选项块每次 2-4 个，只在真的要作者选时才加；其他时候不要出现这个块。',
-].join('\n');
-
 /** 预估输出长度，用于算钱 */
 const ESTIMATED_OUTPUT_TOKENS = 1500;
 
@@ -67,7 +59,8 @@ interface QuickAction {
     needSelection: boolean;
 }
 
-const QUICK_ACTIONS: QuickAction[] = [
+/** 小说：围绕文风写 */
+const NOVEL_ACTIONS: QuickAction[] = [
     {
         key: 'continue',
         label: '续写',
@@ -100,6 +93,118 @@ const QUICK_ACTIONS: QuickAction[] = [
     },
 ];
 
+/** 工作文档：重结构、术语和准确 */
+const DOCS_ACTIONS: QuickAction[] = [
+    {
+        key: 'continue',
+        label: '补要点',
+        prompt: '接着目前内容往下，补充还没覆盖的要点或下一步，保持原有格式和术语，只输出正文，不要解释。',
+        needSelection: false,
+    },
+    {
+        key: 'polish',
+        label: '润色',
+        prompt: '润色下面这段，保持术语、编号和结构不变，只输出改后的正文，不要解释。',
+        needSelection: true,
+    },
+    {
+        key: 'tighten',
+        label: '精简',
+        prompt: '把下面这段压紧，去掉重复和空话，保留全部信息点，只输出正文，不要解释。',
+        needSelection: true,
+    },
+    {
+        key: 'expand',
+        label: '展开',
+        prompt: '把下面这段展开，补充必要的说明和步骤，保持术语准确，只输出正文，不要解释。',
+        needSelection: true,
+    },
+    {
+        key: 'problems',
+        label: '挑问题',
+        prompt: '检查下面这段的技术错误、前后矛盾、缺失的前提和步骤，分条列出问题，不要改正文。',
+        needSelection: true,
+    },
+];
+
+/** 笔记：提炼、归并、行动项 */
+const NOTES_ACTIONS: QuickAction[] = [
+    {
+        key: 'points',
+        label: '提炼要点',
+        prompt: '把下面这段提炼成要点清单，只输出清单，不要解释。',
+        needSelection: true,
+    },
+    {
+        key: 'todos',
+        label: '行动项',
+        prompt: '从下面这段里提取待办和行动项，用清单列出，只输出清单，不要解释。',
+        needSelection: true,
+    },
+    {
+        key: 'merge',
+        label: '归并整理',
+        prompt: '把下面这段归并整理，合并同类项、去重，保留全部信息，只输出整理后的内容，不要解释。',
+        needSelection: true,
+    },
+    {
+        key: 'problems',
+        label: '挑问题',
+        prompt: '检查下面这段的重复、矛盾和信息缺口，分条列出问题，不要改正文。',
+        needSelection: true,
+    },
+];
+
+/**
+ * 按项目类型取快捷指令
+ * @param kind 项目类型
+ * @returns 该类型可用的指令列表
+ */
+function quickActionsFor(kind: ProjectKind | undefined): QuickAction[] {
+    if (kind === 'docs') {
+        return DOCS_ACTIONS;
+    }
+    if (kind === 'notes') {
+        return NOTES_ACTIONS;
+    }
+    return NOVEL_ACTIONS;
+}
+
+/** 对话记忆里一条记录 */
+interface ChatMemoryEntry {
+    items: ChatItem[];
+    updatedAt: string;
+}
+
+/** 书内 AI对话.json：按文档分开存，切文档回来还能接上 */
+interface ChatMemoryFile {
+    conversations: Record<string, ChatMemoryEntry>;
+}
+
+/**
+ * 把某个文档的对话写进 AI对话.json
+ * 流式中的半截内容不落盘
+ * @param bookId 书 id
+ * @param key 文档 key（区/文档 id）
+ * @param items 当前对话
+ */
+async function persistChatMemory(bookId: string, key: string, items: ChatItem[]): Promise<void> {
+    try {
+        const file = await window.api.file.readJson<ChatMemoryFile>(bookId, 'AI对话.json', {
+            conversations: {},
+        });
+        const cleaned = items.filter((item) => !item.pending);
+        if (cleaned.length === 0) {
+            delete file.conversations[key];
+        } else {
+            file.conversations[key] = { items: cleaned, updatedAt: new Date().toISOString() };
+        }
+        await window.api.file.writeJson(bookId, 'AI对话.json', file);
+    } catch {
+        // 记忆存不上不影响写作，静默跳过
+    }
+}
+
 /** 空会话统计 */
 const EMPTY_SESSION: SessionStats = {
     calls: 0,
@@ -118,6 +223,12 @@ const EMPTY_SESSION: SessionStats = {
 export default function ChatPanel() {
     const content = useAppStore((state) => state.content);
     const book = useAppStore((state) => state.book);
+    const chapters = useAppStore((state) => state.chapters);
+    const section = useAppStore((state) => state.section);
+    const chapterId = useAppStore((state) => state.chapterId);
+    const appendToSection = useAppStore((state) => state.appendToSection);
+    const applyOutline = useAppStore((state) => state.applyOutline);
+    const updateBookTitle = useAppStore((state) => state.updateBookTitle);
     const settings = useAppStore((state) => state.settings);
     const pushToast = useAppStore((state) => state.pushToast);
     const selection = useAppStore((state) => state.editorSelection);
@@ -130,6 +241,12 @@ export default function ChatPanel() {
     const [draft, setDraft] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [withChapter, setWithChapter] = useState(true);
+    /** 当前 provider 是否已配 Key：没配时顶上给条提示 */
+    const [hasKey, setHasKey] = useState(true);
+    /** 开书引导卡里的书名草稿（留空表示让 AI 定） */
+    const [bookTitleDraft, setBookTitleDraft] = useState('');
+    /** 「生成章节和细纲」的预览数据，null 表示弹窗关着 */
+    const [outlinePreview, setOutlinePreview] = useState<OutlineChapter[] | null>(null);
     const [session, setSession] = useState<SessionStats>(EMPTY_SESSION);
     /** 最近一次发送的上下文覆盖：发出去多少字 / 本章共多少字 */
     const [contextInfo, setContextInfo] = useState<{ sentChars: number; totalChars: number } | null>(
@@ -142,6 +259,92 @@ export default function ChatPanel() {
     const appendToChapter = useAppStore((state) => state.appendToChapter);
     const currentRequestRef = useRef<string | null>(null);
     const bottomRef = useRef<HTMLDivElement | null>(null);
+    /** 刚加载完记忆时跳过一次存盘，免得把历史原样写回去 */
+    const skipNextMemorySave = useRef(true);
+
+    /** 当前文档的对话记忆 key：同一本书里每篇文档各记各的 */
+    const memoryKey = chapterId ? `${section}/${chapterId}` : null;
+
+    // 切文档时加载对应的对话记忆，切回来还能接着聊
+    useEffect(() => {
+        if (!book || !memoryKey) {
+            setItems([]);
+            return;
+        }
+        let cancelled = false;
+        skipNextMemorySave.current = true;
+        void (async () => {
+            try {
+                const file = await window.api.file.readJson<ChatMemoryFile>(book.id, 'AI对话.json', {
+                    conversations: {},
+                });
+                if (cancelled) {
+                    return;
+                }
+                setItems(file.conversations[memoryKey]?.items ?? []);
+                setSession(EMPTY_SESSION);
+                setContextInfo(null);
+            } catch {
+                if (!cancelled) {
+                    setItems([]);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [book, memoryKey]);
+
+    // 对话变化后防抖写进书内 AI对话.json；流式中的半截内容不落盘
+    useEffect(() => {
+        if (!book || !memoryKey) {
+            return;
+        }
+        if (skipNextMemorySave.current) {
+            skipNextMemorySave.current = false;
+            return;
+        }
+        const timer = window.setTimeout(() => {
+            void persistChatMemory(book.id, memoryKey, items);
+        }, 800);
+        return () => window.clearTimeout(timer);
+    }, [items, book, memoryKey]);
+
+    // 最新对话的镜像：切换文档/关项目时要用它补存，不能读陈旧闭包
+    const itemsRef = useRef<ChatItem[]>(items);
+    useEffect(() => {
+        itemsRef.current = items;
+    }, [items]);
+
+    // 切文档 / 切项目 / 卸载前补存一次：防抖还没到点就被切走时，最后一段对话不能丢
+    useEffect(() => {
+        if (!book || !memoryKey) {
+            return;
+        }
+        const bookId = book.id;
+        const key = memoryKey;
+        return () => {
+            const snapshot = itemsRef.current;
+            if (snapshot.length === 0) {
+                return;
+            }
+            void persistChatMemory(bookId, key, snapshot);
+        };
+    }, [book, memoryKey]);
+
+    // 检查当前 provider 有没有 Key，没配就在面板上提示，别等发请求报鉴权错误
+    useEffect(() => {
+        if (!settings) {
+            return;
+        }
+        void (async () => {
+            try {
+                setHasKey(await window.api.secrets.has(settings.provider.id));
+            } catch {
+                setHasKey(true);
+            }
+        })();
+    }, [settings]);
 
     // 开写包点"发给 AI"时，把整包塞进输入框让作者补指令再发
     useEffect(() => {
@@ -348,10 +551,20 @@ export default function ChatPanel() {
      * @returns 消息数组
      */
     function buildMessages(input: string, contextBlock: string | null): ChatMessage[] {
+        // 附加指令也按项目类型取：小说、文档、笔记各用各的那一栏
+        const kind = book?.kind ?? 'novel';
+        const styleGuide =
+            kind === 'docs'
+                ? (settings?.ai.docsStyleGuide ?? '')
+                : kind === 'notes'
+                  ? (settings?.ai.notesStyleGuide ?? '')
+                  : (settings?.ai.novelStyleGuide ?? '');
+
         const messages: ChatMessage[] = [
             {
                 role: 'system',
-                content: composeSystemPrompt(SYSTEM_PROMPT, settings?.ai.styleGuide ?? ''),
+                // 提示按项目类型来：小说是小说，工作文档/笔记各用各的规则
+                content: composeSystemPrompt(chatRolePrompt(book?.kind), styleGuide),
             },
         ];
 
@@ -523,6 +736,75 @@ export default function ChatPanel() {
         setContextInfo(null);
     }
 
+    // 快捷指令按项目类型切换：小说续写，工作文档补要点，笔记提炼
+    const quickActions = useMemo(() => quickActionsFor(book?.kind), [book?.kind]);
+
+    /** 是不是小说项目（老数据没有 kind 按小说算） */
+    const isNovelProject = !book?.kind || book.kind === 'novel';
+    /** 新书：小说项目且还没有任何章节 → 显示开书引导 */
+    const isNewNovel = isNovelProject && chapters.length === 0;
+
+    /**
+     * 开书第一步：让 AI 定书名和题材
+     */
+    function startBookNaming(): void {
+        const draft = bookTitleDraft.trim();
+        const prompt =
+            draft.length > 0
+                ? `我要写一本小说，暂定书名《${draft}》。先判断这个书名和题材方向合不合适，再给我 3 个更好的书名候选（每个带题材标签），用选项块输出，不要展开解释。`
+                : '我要开一本新书，还没定书名和题材。先用 2 个问题问清我想写什么方向，再给我 3 个书名候选（每个带题材标签），用选项块输出，不要展开解释。';
+        void sendMessage(prompt);
+    }
+
+    /**
+     * 开书第二步：按书名列大纲（每章一行，方便后面一键生成）
+     */
+    function startBookOutline(): void {
+        const title = bookTitleDraft.trim() || book?.title || '未命名';
+        void sendMessage(
+            `书名《${title}》。请按这个书名把全书大纲列出来，分卷分章。` +
+                '没给的设定你自己按常见网文套路定，不要反问、不要征求意见。' +
+                '每章一行，格式严格用「第一章 标题：一句话内容」，章节之间空一行。' +
+                '只输出大纲本身，不要解释、不要选项块。',
+        );
+    }
+
+    /**
+     * 开书第三步：把最后一份大纲落成章节和细纲
+     */
+    function openOutlineFromLastReply(): void {
+        const last = [...items]
+            .reverse()
+            .find((item) => item.role === 'assistant' && !item.pending && !item.error);
+        if (!last) {
+            pushToast('info', '先让 AI 列好大纲，再来生成');
+            return;
+        }
+        const parsed = parseOutlineChapters(last.content);
+        if (parsed.length === 0) {
+            pushToast('info', '没从回复里解析出章节，确认大纲用的是「第X章」格式');
+            return;
+        }
+        setOutlinePreview(parsed);
+    }
+
+    /**
+     * 确认生成：正文建骨架、细纲写大纲；书名草稿有内容就一起定下来
+     */
+    async function confirmOutline(): Promise<void> {
+        if (!outlinePreview || outlinePreview.length === 0) {
+            return;
+        }
+        await applyOutline(
+            outlinePreview.map((item) => ({ title: item.title, content: item.content })),
+        );
+        const draft = bookTitleDraft.trim();
+        if (draft.length > 0) {
+            await updateBookTitle(draft);
+        }
+        setOutlinePreview(null);
+    }
+
     // 上下文命中率：最近一次发送的正文覆盖比例
     const contextRatio = useMemo(() => {
         if (!contextInfo || contextInfo.totalChars === 0) {
@@ -574,7 +856,7 @@ export default function ChatPanel() {
 
             {/* 快捷指令：手边常做的几种改动，一键发起 */}
             <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-ink-800 px-3 py-1.5">
-                {QUICK_ACTIONS.map((action) => (
+                {quickActions.map((action) => (
                     <button
                         key={action.key}
                         type="button"
@@ -588,7 +870,59 @@ export default function ChatPanel() {
                 ))}
             </div>
 
+            {/* 没配 Key 时给一条清楚的提示，别等发请求被服务商甩英文鉴权错误 */}
+            {!hasKey && (
+                <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[12px] leading-relaxed text-amber-500">
+                    还没配置 API Key，AI 暂时用不了。去「设置 → 模型」里填一个，填完这里会自动消失。
+                </div>
+            )}
+
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+                {/* 新书引导：定书名 → 列大纲 → 生成章节和细纲，全程不用复制 */}
+                {isNewNovel && items.length === 0 && (
+                    <div className="rounded-lg border border-jade-600/40 bg-jade-500/5 p-2.5">
+                        <p className="mb-1 text-[13px] font-medium text-jade-500">开新书三步走</p>
+                        <p className="mb-2 text-[12px] leading-relaxed text-ink-500">
+                            生成的大纲会直接变成细纲，正文骨架也一起建好，不用复制粘贴。
+                        </p>
+                        <input
+                            className="field h-7 w-full text-[13px]"
+                            placeholder="书名（可留空，让 AI 定）"
+                            value={bookTitleDraft}
+                            onChange={(event) => setBookTitleDraft(event.target.value)}
+                        />
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            <button
+                                type="button"
+                                className="btn-outline h-7 text-[12px]"
+                                onClick={startBookNaming}
+                                disabled={streaming}
+                                title="让 AI 给书名和题材候选"
+                            >
+                                ① 定书名和题材
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-outline h-7 text-[12px]"
+                                onClick={startBookOutline}
+                                disabled={streaming}
+                                title="按书名把全书大纲按「第X章」格式列出来"
+                            >
+                                ② 按书名列大纲
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-outline h-7 text-[12px]"
+                                onClick={openOutlineFromLastReply}
+                                disabled={streaming}
+                                title="把刚才的大纲变成章节：正文建骨架、细纲写大纲"
+                            >
+                                ③ 生成章节和细纲
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {items.length === 0 ? (
                     <div className="text-[13px] leading-relaxed text-ink-500">
                         <p className="mb-2 text-ink-400">可以让它做的事：</p>
@@ -681,6 +1015,31 @@ export default function ChatPanel() {
                                             >
                                                 用到正文
                                             </button>
+                                            {isNovelProject && (
+                                                <button
+                                                    type="button"
+                                                    className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
+                                                    onClick={() => void appendToSection('xigang', parsed.body)}
+                                                    title="写到细纲区：正文和细纲分开管理，回细纲里可以看到"
+                                                >
+                                                    写到细纲
+                                                </button>
+                                            )}
+                                            {isNovelProject &&
+                                                parseOutlineChapters(item.content).length >= 2 && (
+                                                    <button
+                                                        type="button"
+                                                        className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
+                                                        onClick={() =>
+                                                            setOutlinePreview(
+                                                                parseOutlineChapters(item.content),
+                                                            )
+                                                        }
+                                                        title="把这份大纲变成章节：正文建骨架章，细纲写每章大纲"
+                                                    >
+                                                        生成章节和细纲
+                                                    </button>
+                                                )}
                                             <button
                                                 type="button"
                                                 className="rounded px-2 py-0.5 text-[13px] text-ink-500 transition-colors hover:bg-ink-800 hover:text-ink-300"
@@ -762,6 +1121,49 @@ export default function ChatPanel() {
                     )}
                 </div>
             </div>
+
+            {/* 大纲预览：确认后正文建骨架、细纲写大纲，一次到位 */}
+            <Modal
+                open={outlinePreview !== null}
+                title="生成章节和细纲"
+                subtitle={`解析出 ${outlinePreview?.length ?? 0} 章：正文建骨架章，细纲写每章大纲`}
+                onClose={() => setOutlinePreview(null)}
+                widthClass="max-w-2xl"
+                footer={
+                    <>
+                        <span className="mr-auto text-[13px] text-ink-500">
+                            确认后立即创建，之后可以自己改
+                        </span>
+                        <button
+                            type="button"
+                            className="btn-ghost"
+                            onClick={() => setOutlinePreview(null)}
+                        >
+                            取消
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={() => void confirmOutline()}
+                        >
+                            生成
+                        </button>
+                    </>
+                }
+            >
+                <div className="max-h-[52vh] space-y-1.5 overflow-y-auto pr-1">
+                    {(outlinePreview ?? []).map((item, index) => (
+                        <div key={index} className="rounded-md border border-ink-800 p-2">
+                            <p className="text-[13px] text-ink-100">
+                                {index + 1}. {item.title}
+                            </p>
+                            <p className="mt-0.5 text-[12px] leading-relaxed text-ink-500">
+                                {item.content.slice(0, 90) || '（无大纲内容，只建标题）'}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            </Modal>
 
             {/* 分段选用：默认全选，取消勾选就不要那一段 */}
             <Modal

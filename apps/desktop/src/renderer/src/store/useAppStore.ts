@@ -133,6 +133,12 @@ interface AppStore {
     restoreSnapshot: (fileName: string) => Promise<void>;
     /** 把一段文字追加到当前文档末尾并保存 */
     appendToChapter: (text: string) => Promise<void>;
+    /** 把文字写到指定区（正文/细纲）：当前章优先，没有章节就新建 */
+    appendToSection: (section: ChapterSection, text: string) => Promise<void>;
+    /** 批量生成章节：正文建骨架、细纲写大纲 */
+    applyOutline: (items: Array<{ title: string; content: string }>) => Promise<void>;
+    /** 改书名：只改 book.json 的标题，目录名不动 */
+    updateBookTitle: (title: string) => Promise<void>;
     refreshBooks: () => Promise<void>;
     createBook: (input: CreateBookInput) => Promise<void>;
     removeBook: (bookId: string) => Promise<void>;
@@ -350,6 +356,115 @@ export const useAppStore = create<AppStore>((set, get) => ({
         set({ content: next, activeView: 'chapter' });
         await get().save();
         get().pushToast('success', '已追加到本章末尾');
+    },
+
+    appendToSection: async (targetSection, text) => {
+        const { book, section: currentSection, chapterId } = get();
+        if (!book) {
+            get().pushToast('info', '先打开一个项目');
+            return;
+        }
+        const trimmed = text.trim();
+        if (trimmed.length === 0) {
+            return;
+        }
+        const sectionLabel = targetSection === 'xigang' ? '细纲' : '正文';
+        try {
+            // 目标区当前章优先；没有就取第一篇；一篇都没有就先建「大纲」
+            let targetId: string | null = null;
+            if (targetSection === currentSection && chapterId) {
+                targetId = chapterId;
+            } else {
+                const list = await window.api.chapter.list(book.id, targetSection);
+                targetId = list[0]?.id ?? null;
+            }
+            if (!targetId) {
+                const created = await window.api.chapter.create(book.id, targetSection, '大纲');
+                targetId = created.id;
+            }
+            const existing = await window.api.chapter.read(book.id, targetSection, targetId);
+            const next = `${existing.replace(/\s+$/, '')}\n\n${trimmed}\n`;
+            await window.api.chapter.write(book.id, targetSection, targetId, next);
+
+            // 刷新区与树；正好是当前区当前章时同步编辑器内容
+            const [chapters, tree] = await Promise.all([
+                window.api.chapter.list(book.id, targetSection),
+                window.api.tree.list(book.id, targetSection),
+            ]);
+            if (targetSection === get().section) {
+                set({ chapters, tree });
+            }
+            if (targetSection === get().section && targetId === get().chapterId) {
+                set({ content: next, savedContent: next });
+            }
+            get().pushToast('success', `已写入${sectionLabel}`);
+        } catch (error) {
+            get().pushToast('error', errorMessage(error));
+        }
+    },
+
+    applyOutline: async (items) => {
+        const { book } = get();
+        if (!book || items.length === 0) {
+            return;
+        }
+        try {
+            const createdIds: string[] = [];
+            for (const item of items) {
+                // 正文：建空骨架章，标题进正文一级标题
+                const bodyChapter = await window.api.chapter.create(book.id, 'zhengwen', item.title);
+                createdIds.push(bodyChapter.id);
+                // 细纲：同标题建文档，写入该章大纲
+                const outlineChapter = await window.api.chapter.create(book.id, 'xigang', item.title);
+                const outlineBody = item.content.trim();
+                if (outlineBody.length > 0) {
+                    await window.api.chapter.write(
+                        book.id,
+                        'xigang',
+                        outlineChapter.id,
+                        `# ${item.title}\n\n${outlineBody}\n`,
+                    );
+                }
+            }
+            const [chapters, tree] = await Promise.all([
+                window.api.chapter.list(book.id, get().section),
+                window.api.tree.list(book.id, get().section),
+            ]);
+            set({ chapters, tree });
+            if (createdIds.length > 0) {
+                await get().openChapter(createdIds[0]);
+            }
+            get().pushToast('success', `已生成 ${items.length} 章：正文骨架 + 细纲大纲`);
+        } catch (error) {
+            get().pushToast('error', errorMessage(error));
+        }
+    },
+
+    updateBookTitle: async (title) => {
+        const { book } = get();
+        if (!book) {
+            return;
+        }
+        const trimmed = title.trim();
+        if (trimmed.length === 0 || trimmed === book.title) {
+            return;
+        }
+        try {
+            const meta = await window.api.library.readMeta(book.id);
+            if (!meta) {
+                throw new Error('书的信息读不到');
+            }
+            await window.api.library.saveMeta({
+                ...meta,
+                title: trimmed,
+                updatedAt: new Date().toISOString(),
+            });
+            set({ book: { ...book, title: trimmed } });
+            await get().refreshBooks();
+            get().pushToast('success', '书名已更新');
+        } catch (error) {
+            get().pushToast('error', errorMessage(error));
+        }
     },
 
     restoreSnapshot: async (fileName) => {
