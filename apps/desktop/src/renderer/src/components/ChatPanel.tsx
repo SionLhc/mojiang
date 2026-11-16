@@ -552,48 +552,52 @@ export default function ChatPanel() {
             return { block: null, sentChars: 0, totalChars, usedSelection: false };
         }
 
-        // 小说：正文和细纲一起给，写正文要对齐细纲、改细纲要考虑已有正文
+        // 小说：正文、细纲、剧情画板、人物、伏笔、账本、文风全带上——AI 才能做出完整判断
         if (isNovelProject && book) {
-            const body = content.trim();
-            let outlineText = '';
+            let pack: Awaited<ReturnType<typeof window.api.writing.context>> | null = null;
             try {
-                const outlineList = await window.api.chapter.list(book.id, 'xigang');
-                if (outlineList.length > 0) {
-                    // 同章细纲优先；没有对应章就取第一篇（新书通常只有「大纲」）
-                    const sameChapter = chapterId
-                        ? outlineList.find((item) => item.id === chapterId)
-                        : undefined;
-                    const target = sameChapter ?? outlineList[0];
-                    outlineText = (await window.api.chapter.read(book.id, 'xigang', target.id)).trim();
-                }
+                pack = await window.api.writing.context(book.id, chapterId);
             } catch {
-                // 细纲读不到就只带正文，不打断对话
+                pack = null;
+            }
+            if (!pack) {
+                return { block: null, sentChars: 0, totalChars, usedSelection: false };
             }
 
-            const parts: string[] = [];
+            const blocks: string[] = [];
             let sentChars = 0;
-            if (body.length > 0) {
-                const clipped = clipToBudget(
-                    body,
-                    outlineText.length > 0 ? Math.floor(MAX_CONTEXT_CHARS * 0.55) : MAX_CONTEXT_CHARS,
-                );
-                parts.push(`【当前章正文】\n${clipped}`);
+            /**
+             * 按预算塞一块，超了整体截断
+             * @param label 块标题
+             * @param text 块内容
+             * @param budget 这块最多多少字
+             */
+            const push = (label: string, text: string, budget: number): void => {
+                const trimmed = text.trim();
+                if (trimmed.length === 0 || sentChars >= MAX_CONTEXT_CHARS) {
+                    return;
+                }
+                const clipped = clipToBudget(trimmed, Math.min(budget, MAX_CONTEXT_CHARS - sentChars));
+                blocks.push(`【${label}】\n${clipped}`);
                 sentChars += clipped.length;
+            };
+            push('当前章正文', pack.body, 2500);
+            push('本章细纲', pack.outline, 1000);
+            push('剧情画板', pack.plot, 800);
+            for (const item of pack.items) {
+                // 工具数据每项给 400 字，够 AI 判断又不会挤爆预算
+                push(item.label, item.content, 400);
             }
-            if (outlineText.length > 0) {
-                // 剩余预算给细纲，至少留 800 字，短正文时细纲能多带
-                const outlineBudget = Math.max(800, MAX_CONTEXT_CHARS - sentChars);
-                const clipped = clipToBudget(outlineText, outlineBudget);
-                parts.push(`【细纲/大纲】\n${clipped}`);
-                sentChars += clipped.length;
-            }
-            if (parts.length === 0) {
+            if (blocks.length === 0) {
                 return { block: null, sentChars: 0, totalChars, usedSelection: false };
             }
             return {
-                block: `${parts.join('\n\n')}\n（正文和细纲要互相照顾：写正文对齐细纲，改细纲别和已有正文冲突）`,
+                block:
+                    `${blocks.join('\n\n')}\n` +
+                    '（细纲是菜单、正文是成品：写正文对齐细纲和工具设定；改细纲别和已有正文冲突；' +
+                    '人物说话方式、伏笔、账本状态都以这些料为准）',
                 sentChars,
-                totalChars: totalChars + outlineText.length,
+                totalChars: totalChars + pack.outline.length,
                 usedSelection: false,
             };
         }
@@ -861,7 +865,11 @@ export default function ChatPanel() {
             return;
         }
         await applyOutline(
-            outlinePreview.map((item) => ({ title: item.title, content: item.content })),
+            outlinePreview.map((item) => ({
+                title: item.title,
+                summary: item.summary,
+                content: item.content,
+            })),
         );
         const draft = bookTitleDraft.trim();
         if (draft.length > 0) {
@@ -1008,6 +1016,13 @@ export default function ChatPanel() {
                             item.role === 'assistant' && !item.pending && !item.error
                                 ? parseChatOptions(item.content)
                                 : { body: item.content, options: [] };
+                        // 能解析出多章 = 大纲/规划类内容：只进细纲，不给「用到正文」
+                        // 顺序是先把大纲做出来，再照细纲写正文
+                        const outlineChapters =
+                            item.role === 'assistant' && !item.pending && !item.error
+                                ? parseOutlineChapters(item.content)
+                                : [];
+                        const isPlanningReply = outlineChapters.length >= 2;
                         return (
                             <div
                                 key={item.id}
@@ -1074,7 +1089,8 @@ export default function ChatPanel() {
                                     !item.error &&
                                     item.content.trim().length > 80 && (
                                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                            {item.fromSelection && (
+                                            {/* 规划类内容（大纲）只给细纲入口，正文等「按细纲写本章」再产出 */}
+                                            {item.fromSelection && !isPlanningReply && (
                                                 <button
                                                     type="button"
                                                     className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
@@ -1084,38 +1100,35 @@ export default function ChatPanel() {
                                                     替换选中
                                                 </button>
                                             )}
-                                            <button
-                                                type="button"
-                                                className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
-                                                onClick={() => openInsert(parsed.body)}
-                                            >
-                                                用到正文
-                                            </button>
+                                            {!isPlanningReply && (
+                                                <button
+                                                    type="button"
+                                                    className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
+                                                    onClick={() => openInsert(parsed.body)}
+                                                >
+                                                    用到正文
+                                                </button>
+                                            )}
                                             {isNovelProject && (
                                                 <button
                                                     type="button"
                                                     className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
                                                     onClick={() => void appendToSection('xigang', parsed.body)}
-                                                    title="写到细纲区：正文和细纲分开管理，回细纲里可以看到"
+                                                    title="写到细纲区：大纲和剧情规划归细纲，正文只放成品"
                                                 >
                                                     写到细纲
                                                 </button>
                                             )}
-                                            {isNovelProject &&
-                                                parseOutlineChapters(item.content).length >= 2 && (
-                                                    <button
-                                                        type="button"
-                                                        className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
-                                                        onClick={() =>
-                                                            setOutlinePreview(
-                                                                parseOutlineChapters(item.content),
-                                                            )
-                                                        }
-                                                        title="把这份大纲变成章节：正文建骨架章，细纲写每章大纲"
-                                                    >
-                                                        生成章节和细纲
-                                                    </button>
-                                                )}
+                                            {isNovelProject && isPlanningReply && (
+                                                <button
+                                                    type="button"
+                                                    className="rounded border border-jade-600/40 px-2 py-0.5 text-[13px] text-jade-600 transition-colors hover:bg-jade-500/10"
+                                                    onClick={() => setOutlinePreview(outlineChapters)}
+                                                    title="把这份大纲变成章节：正文建骨架章，细纲按模板写大纲"
+                                                >
+                                                    生成章节和细纲
+                                                </button>
+                                            )}
                                             <button
                                                 type="button"
                                                 className="rounded px-2 py-0.5 text-[13px] text-ink-500 transition-colors hover:bg-ink-800 hover:text-ink-300"
@@ -1234,7 +1247,7 @@ export default function ChatPanel() {
                                 {index + 1}. {item.title}
                             </p>
                             <p className="mt-0.5 text-[12px] leading-relaxed text-ink-500">
-                                {item.content.slice(0, 90) || '（无大纲内容，只建标题）'}
+                                {item.summary || item.content.slice(0, 90) || '（无大纲内容，只建标题）'}
                             </p>
                         </div>
                     ))}

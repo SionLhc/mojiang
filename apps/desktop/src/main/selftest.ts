@@ -588,9 +588,12 @@ export async function runSelfTest(): Promise<SelfTestResult> {
     );
     const outlineParseOk =
         parsedOutline.length === 2 &&
+        // 标题只留冒号前，冒号后的剧情进 summary（进细纲要点）
         parsedOutline[0].title === '第一章 开端' &&
+        parsedOutline[0].summary === '' &&
         parsedOutline[0].content === '主角醒来。' &&
-        parsedOutline[1].title === '第二章 转折：他走了' &&
+        parsedOutline[1].title === '第二章 转折' &&
+        parsedOutline[1].summary === '他走了' &&
         parsedOutline[1].content === '门开了。';
     const optionsOk =
         optionParsed.body === '正文在这里。' &&

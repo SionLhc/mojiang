@@ -59,9 +59,11 @@ export function parseChatOptions(text: string): ChatOptionsParse {
 
 /** 大纲里的一章 */
 export interface OutlineChapter {
-    /** 章节标题，保留「第一章 xxx」原样 */
+    /** 章节标题，只保留「第X章 标题」部分（冒号前的） */
     title: string;
-    /** 该章的大纲内容（标题到下一个标题之间） */
+    /** 标题冒号后的一句话剧情，进细纲「本章要点」 */
+    summary: string;
+    /** 标题下其他大纲内容（标题到下一个标题之间） */
     content: string;
 }
 
@@ -95,6 +97,24 @@ function matchOutlineTitle(line: string): string | null {
 }
 
 /**
+ * 把标题行拆成「标题」和「一句话剧情」
+ * 「第一章 废料场：陆昭翻找星轨残片」→ 标题「第一章 废料场」、要点「陆昭翻找星轨残片」
+ * @param raw 标题原始行
+ * @returns 拆好的标题与要点
+ */
+function splitHeading(raw: string): { title: string; summary: string } {
+    const trimmed = raw.trim();
+    const matched = trimmed.match(/[：:]/);
+    if (!matched || matched.index === undefined) {
+        return { title: trimmed, summary: '' };
+    }
+    return {
+        title: trimmed.slice(0, matched.index).trim(),
+        summary: trimmed.slice(matched.index + 1).trim(),
+    };
+}
+
+/**
  * 把 AI 输出的大纲解析成章节列表
  * 用于「生成章节和细纲」：正文建骨架、细纲写大纲，作者不用复制
  * 标题行之外、第一个标题之前的内容会被丢弃（通常是书名或说明）
@@ -105,6 +125,7 @@ export function parseOutlineChapters(text: string): OutlineChapter[] {
     const lines = text.replace(/\r\n?/g, '\n').split('\n');
     const chapters: OutlineChapter[] = [];
     let currentTitle = '';
+    let currentSummary = '';
     let buffer: string[] = [];
 
     const flush = (): void => {
@@ -112,15 +133,21 @@ export function parseOutlineChapters(text: string): OutlineChapter[] {
             buffer = [];
             return;
         }
-        chapters.push({ title: currentTitle, content: buffer.join('\n').trim() });
+        chapters.push({
+            title: currentTitle,
+            summary: currentSummary,
+            content: buffer.join('\n').trim(),
+        });
         buffer = [];
     };
 
     for (const line of lines) {
-        const title = matchOutlineTitle(line);
-        if (title !== null) {
+        const heading = matchOutlineTitle(line);
+        if (heading !== null) {
             flush();
-            currentTitle = title;
+            const parts = splitHeading(heading);
+            currentTitle = parts.title;
+            currentSummary = parts.summary;
             continue;
         }
         if (currentTitle.length > 0) {

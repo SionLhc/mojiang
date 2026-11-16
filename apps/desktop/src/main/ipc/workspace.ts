@@ -9,6 +9,7 @@ import { logError } from '../services/logger';
 import { assertBookId } from '../services/paths';
 import { readMindBoard, writeMindBoard } from '../services/mind-board';
 import { readPlot, writePlot } from '../services/plot';
+import { buildWritingContext } from '../services/writing-context';
 import { createQuickNote } from '../services/quick-note';
 import { searchAll } from '../services/search';
 import type { ChapterSection } from '../../shared/types';
@@ -102,6 +103,14 @@ export function registerWorkspaceIpc(): void {
             return await readPlot(assertBookId(bookId));
         } catch (error) {
             throw wrapError('读取剧情图', error);
+        }
+    });
+
+    ipcMain.handle('writing:context', async (_event, bookId: string, chapterId: string | null) => {
+        try {
+            return await buildWritingContext(assertBookId(bookId), chapterId ?? null);
+        } catch (error) {
+            throw wrapError('组装写作上下文', error);
         }
     });
 

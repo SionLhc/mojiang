@@ -135,8 +135,8 @@ interface AppStore {
     appendToChapter: (text: string) => Promise<void>;
     /** 把文字写到指定区（正文/细纲）：当前章优先，没有章节就新建 */
     appendToSection: (section: ChapterSection, text: string) => Promise<void>;
-    /** 批量生成章节：正文建骨架、细纲写大纲 */
-    applyOutline: (items: Array<{ title: string; content: string }>) => Promise<void>;
+    /** 批量生成章节：正文建骨架、细纲按模板写大纲 */
+    applyOutline: (items: Array<{ title: string; summary: string; content: string }>) => Promise<void>;
     /** 改书名：只改 book.json 的标题，目录名不动 */
     updateBookTitle: (title: string) => Promise<void>;
     refreshBooks: () => Promise<void>;
@@ -160,6 +160,50 @@ interface AppStore {
 
 /** 提示条自增 id */
 let toastSequence = 0;
+
+/**
+ * 细纲模板：菜单要写清楚这道菜是什么、用什么做的
+ * 正文（成品）照它做菜，AI 也靠它判断本章要发生什么
+ * @param item 章节数据
+ * @returns 细纲 Markdown
+ */
+function buildOutlineMarkdown(item: { title: string; summary: string; content: string }): string {
+    const points: string[] = [];
+    if (item.summary) {
+        points.push(`- ${item.summary}`);
+    }
+    if (item.content) {
+        points.push(item.content);
+    }
+    if (points.length === 0) {
+        points.push('（待补：这一章要发生什么）');
+    }
+    return [
+        `# ${item.title}`,
+        '',
+        '## 本章要点',
+        ...points,
+        '',
+        '## 世界观',
+        '（本章涉及的设定、规则、地点）',
+        '',
+        '## 冲突原则',
+        '（这一章的冲突从哪来、谁和谁、为什么不可调和）',
+        '',
+        '## 冲突事件',
+        '（具体事件：起因、升级、收场）',
+        '',
+        '## 出场人物',
+        '（谁出场、在这一章的诉求）',
+        '',
+        '## 涉及伏笔',
+        '（本章要埋或要回收的伏笔）',
+        '',
+        '## 呼应前文',
+        '（要呼应哪一章的什么）',
+        '',
+    ].join('\n');
+}
 
 /**
  * 创建状态
@@ -411,20 +455,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
         try {
             const createdIds: string[] = [];
             for (const item of items) {
-                // 正文：建空骨架章，标题进正文一级标题
+                // 正文：只建空骨架章，标题进正文一级标题（正文是成品，等「按细纲写本章」再填）
                 const bodyChapter = await window.api.chapter.create(book.id, 'zhengwen', item.title);
                 createdIds.push(bodyChapter.id);
-                // 细纲：同标题建文档，写入该章大纲
+                // 细纲：按模板写，菜单要写清这道菜是什么、用什么做的
                 const outlineChapter = await window.api.chapter.create(book.id, 'xigang', item.title);
-                const outlineBody = item.content.trim();
-                if (outlineBody.length > 0) {
-                    await window.api.chapter.write(
-                        book.id,
-                        'xigang',
-                        outlineChapter.id,
-                        `# ${item.title}\n\n${outlineBody}\n`,
-                    );
-                }
+                await window.api.chapter.write(
+                    book.id,
+                    'xigang',
+                    outlineChapter.id,
+                    buildOutlineMarkdown(item),
+                );
             }
             const [chapters, tree] = await Promise.all([
                 window.api.chapter.list(book.id, get().section),

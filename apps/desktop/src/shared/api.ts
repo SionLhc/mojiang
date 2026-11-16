@@ -229,6 +229,19 @@ export interface MoJiangApi {
         /** 保存导图画板 */
         write(bookId: string, graph: import('@mojiang/core').MindBoardGraph): Promise<void>;
     };
+    writing: {
+        /** 组装写作上下文包：当前章正文 + 细纲 + 开写包各项 + 剧情画板摘要 */
+        context(
+            bookId: string,
+            chapterId: string | null,
+        ): Promise<{
+            body: string;
+            outline: string;
+            items: Array<{ key: string; label: string; content: string }>;
+            plot: string;
+            chapterNumber: number;
+        }>;
+    };
     stats: {
         /** 读码字统计 */
         read(): Promise<WritingStats>;
