@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PROJECT_KINDS, type ProjectKind } from '@mojiang/core';
 import Modal from '@/components/Modal';
 import StyleDistillDialog from '@/components/StyleDistillDialog';
@@ -65,6 +65,12 @@ export default function HomeView() {
     const [creating, setCreating] = useState(false);
     /** 人味蒸馏弹窗（只服务小说，跟文档/笔记分开） */
     const [distillOpen, setDistillOpen] = useState(false);
+
+    // 每次显示首页都重新统计：篇数和字数是实时扫目录算出来的，
+    // 不重新读就会一直显示进项目之前那个数字（新建了文档也还是 0 篇）
+    useEffect(() => {
+        void refreshBooks();
+    }, [refreshBooks]);
 
     const visibleBooks = useMemo(() => {
         const keyword = query.trim().toLowerCase();

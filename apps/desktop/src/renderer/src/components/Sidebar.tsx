@@ -458,10 +458,13 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                     className="flex h-7 shrink-0 items-center gap-1 rounded-md border border-ink-700 px-1.5 text-ink-300 transition-colors hover:border-jade-600 hover:bg-jade-500/10 hover:text-jade-400"
                     title="返回书库"
                     onClick={() => {
-                        if (dirty) {
-                            void useAppStore.getState().save();
-                        }
-                        closeBook();
+                        // 先存再关；closeBook 会重新统计一次，首页才不会停在 0 篇 0 字
+                        void (async () => {
+                            if (dirty) {
+                                await useAppStore.getState().save();
+                            }
+                            await closeBook();
+                        })();
                     }}
                 >
                     <svg

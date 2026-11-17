@@ -156,7 +156,8 @@ interface AppStore {
     createBook: (input: CreateBookInput) => Promise<void>;
     removeBook: (bookId: string) => Promise<void>;
     openBook: (book: BookSummary) => Promise<void>;
-    closeBook: () => void;
+    /** 关掉项目回首页；返回时会重新统计，免得首页还显示进项目前的旧篇数字数 */
+    closeBook: () => Promise<void>;
     setSection: (section: ChapterSection) => Promise<void>;
     openChapter: (chapterId: string) => Promise<void>;
     /** 新建一篇内容，返回是否真的建成了（失败时已经弹过 toast） */
@@ -661,7 +662,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         try {
             await window.api.library.remove(bookId);
             if (get().book?.id === bookId) {
-                get().closeBook();
+                await get().closeBook();
             }
             await get().refreshBooks();
             get().pushToast('success', '已经放进回收站，可以恢复');
@@ -706,7 +707,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
     },
 
-    closeBook: () => {
+    closeBook: async () => {
         set({
             book: null,
             chapters: [],
@@ -720,6 +721,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
             activeView: 'chapter',
             activeTag: null,
         });
+        // 回首页前重新统计一遍：篇数、字数是打开项目时算的，期间新建的文档不会自己进列表
+        await get().refreshBooks();
     },
 
     setSection: async (section) => {

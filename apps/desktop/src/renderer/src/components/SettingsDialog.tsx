@@ -70,7 +70,6 @@ const CONTEXT_WINDOW_PRESETS: Array<{ label: string; value: number }> = [
 export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const settings = useAppStore((state) => state.settings);
     const updateSettings = useAppStore((state) => state.updateSettings);
-    const refreshBooks = useAppStore((state) => state.refreshBooks);
     const closeBook = useAppStore((state) => state.closeBook);
     const pushToast = useAppStore((state) => state.pushToast);
 
@@ -317,8 +316,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 return;
             }
             setPaths(await window.api.app.paths());
-            closeBook();
-            await refreshBooks();
+            // closeBook 里已经重新统计过一次，这里不用再刷
+            await closeBook();
             pushToast('success', `书库已切到 ${next}`);
         } catch (error) {
             pushToast('error', errorMessage(error));

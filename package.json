@@ -1,6 +1,6 @@
 {
     "name": "mojiang",
-    "version": "2.11.2",
+    "version": "2.11.3",
     "private": true,
     "description": "墨匠 —— 本地运行的网文创作工作台",
     "workspaces": [
