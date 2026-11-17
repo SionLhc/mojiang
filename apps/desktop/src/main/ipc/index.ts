@@ -5,6 +5,7 @@
 
 import { registerAttachmentIpc } from './attachment';
 import { registerDataIpc } from './data';
+import { registerDialogIpc } from './dialog';
 import { registerExportIpc } from './export';
 import { registerImportIpc } from './import';
 import { registerContentIpc, registerLibraryIpc } from './library';
@@ -35,6 +36,7 @@ export function registerAllIpc(): void {
     registerStatsIpc();
     registerAppIpc();
     registerAttachmentIpc();
+    registerDialogIpc();
     registerSkillIpc();
     registerPreferenceIpc();
     registerStyleIpc();

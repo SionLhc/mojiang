@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { PROJECT_KINDS, type ProjectKind } from '@mojiang/core';
 import Modal from '@/components/Modal';
 import StyleDistillDialog from '@/components/StyleDistillDialog';
+import { askConfirm } from '@/lib/confirm';
 import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -137,8 +138,8 @@ export default function HomeView() {
      * @param bookId 项目 id
      * @param bookTitle 项目名
      */
-    function handleRemove(bookId: string, bookTitle: string): void {
-        const ok = window.confirm(`把「${bookTitle}」放进回收站？\n\n回收站在「文档/墨匠/回收站」，能恢复。`);
+    async function handleRemove(bookId: string, bookTitle: string): Promise<void> {
+        const ok = await askConfirm(`把「${bookTitle}」放进回收站？\n\n回收站在「文档/墨匠/回收站」，能恢复。`);
         if (ok) {
             void removeBook(bookId);
         }

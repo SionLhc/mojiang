@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { askConfirm } from '@/lib/confirm';
 import { errorMessage } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -138,7 +139,7 @@ export default function PreferenceSettings() {
      * 清空所有示范
      */
     async function clearAll(): Promise<void> {
-        if (!window.confirm('清空所有学到的改法？清空后 AI 会回到默认写法。')) {
+        if (!(await askConfirm('清空所有学到的改法？清空后 AI 会回到默认写法。'))) {
             return;
         }
         setBusy(true);
@@ -194,7 +195,7 @@ export default function PreferenceSettings() {
      * 清空我的笔感
      */
     async function clearPersonal(): Promise<void> {
-        if (!window.confirm('清空我的笔感？攒下的画像会归零，需要重新从零开始积累。')) {
+        if (!(await askConfirm('清空我的笔感？攒下的画像会归零，需要重新从零开始积累。'))) {
             return;
         }
         setBusy(true);

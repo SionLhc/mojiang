@@ -7,6 +7,7 @@ import {
     touchForeshadow,
     type Foreshadow,
 } from '@mojiang/core';
+import { askConfirm } from '@/lib/confirm';
 import { useAppStore } from '@/store/useAppStore';
 
 /**
@@ -94,7 +95,7 @@ export default function ForeshadowView() {
      * @param item 伏笔
      */
     async function removeItem(item: Foreshadow): Promise<void> {
-        if (!window.confirm(`删除这条伏笔？\n\n${item.content}`)) {
+        if (!(await askConfirm(`删除这条伏笔？\n\n${item.content}`))) {
             return;
         }
         await commit(foreshadow!.items.filter((entry) => entry.id !== item.id));

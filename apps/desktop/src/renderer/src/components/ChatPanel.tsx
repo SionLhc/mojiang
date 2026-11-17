@@ -24,6 +24,7 @@ import {
 import type { ChatMessage } from '@mojiang/llm';
 import Modal from '@/components/Modal';
 import SkillDialog from '@/components/SkillDialog';
+import { askConfirm } from '@/lib/confirm';
 import { errorMessage, formatCharCount, formatCny } from '@/lib/format';
 import { markAiText } from '@/lib/preference';
 import { useAppStore } from '@/store/useAppStore';
@@ -987,7 +988,7 @@ export default function ChatPanel() {
                 return;
             }
             if (estimate.overChapterLimit) {
-                const ok = window.confirm(
+                const ok = await askConfirm(
                     `这次调用预计花 ${formatCny(estimate.costCny)}，超过你设的单章上限 ` +
                         `${formatCny(settings.budget.perChapterLimitCny)}。继续吗？`,
                 );

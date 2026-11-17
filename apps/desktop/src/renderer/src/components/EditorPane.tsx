@@ -14,6 +14,7 @@ import PlotView from '@/components/PlotView';
 import SensitiveView from '@/components/SensitiveView';
 import StatsView from '@/components/StatsView';
 import VersionDialog from '@/components/VersionDialog';
+import { askConfirm } from '@/lib/confirm';
 import { formatCharCount } from '@/lib/format';
 import { markAiText } from '@/lib/preference';
 import { useAppStore } from '@/store/useAppStore';
@@ -209,7 +210,7 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
     /**
      * 替换原文：位置可能因期间编辑而偏移，先按原文核对，找不到就作废
      */
-    function applySegmentReplace(): void {
+    async function applySegmentReplace(): Promise<void> {
         if (!segmentResult) {
             return;
         }
@@ -217,7 +218,7 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
         // 防线：改后字数明显异常（老段落被扩写成新段落）先问一句
         const ratio = original.length > 0 ? rewritten.length / original.length : 1;
         if (rewritten.length > 40 && (ratio > 3 || ratio < 0.25)) {
-            const ok = window.confirm(
+            const ok = await askConfirm(
                 `原文 ${original.length} 字，改后 ${rewritten.length} 字，差距比较大。\n确定替换吗？`,
             );
             if (!ok) {

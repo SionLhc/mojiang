@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROJECT_KINDS, getProjectFeatures, type ProjectKind } from '@mojiang/core';
 import DocumentTree from '@/components/DocumentTree';
 import RecycleDialog from '@/components/RecycleDialog';
 import StyleDistillDialog from '@/components/StyleDistillDialog';
+import { askConfirm } from '@/lib/confirm';
 import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { collectTags, filterTreeByTag } from '@/lib/tree';
 import { useAppStore } from '@/store/useAppStore';
@@ -63,6 +64,10 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
     const submittingRef = useRef(false);
     /** 正在提交新建文件夹，同样用来挡重复回车 */
     const folderSubmittingRef = useRef(false);
+    /** 文档标题输入框，用来在打开后主动聚焦 */
+    const docInputRef = useRef<HTMLInputElement | null>(null);
+    /** 文件夹名输入框 */
+    const folderInputRef = useRef<HTMLInputElement | null>(null);
     /** 书内回收站弹窗 */
     const [recycleOpen, setRecycleOpen] = useState(false);
     /** 人味蒸馏弹窗（小说专用） */
@@ -75,6 +80,22 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
     const [folderName, setFolderName] = useState('');
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
     const [bookQuery, setBookQuery] = useState('');
+    // 输入框出现后主动聚焦：窗口从原生对话框切回来时，autoFocus 偶尔不生效，
+    // 用户就会觉得「输入框出来了但打不进字」，这里补一次显式聚焦
+    useEffect(() => {
+        if (!docInputOpen) {
+            return;
+        }
+        const timer = window.setTimeout(() => docInputRef.current?.focus(), 0);
+        return () => window.clearTimeout(timer);
+    }, [docInputOpen]);
+    useEffect(() => {
+        if (!folderInputOpen) {
+            return;
+        }
+        const timer = window.setTimeout(() => folderInputRef.current?.focus(), 0);
+        return () => window.clearTimeout(timer);
+    }, [folderInputOpen]);
     const [bookSort, setBookSort] = useState<BookSort>('recent');
 
     const features = getProjectFeatures(book?.kind);
@@ -152,8 +173,8 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
      * @param bookId 书 id
      * @param title 书名
      */
-    function handleRemoveBook(bookId: string, title: string): void {
-        const ok = window.confirm(`把「${title}」放进回收站？\n\n回收站在「文档/墨匠/回收站」，能恢复。`);
+    async function handleRemoveBook(bookId: string, title: string): Promise<void> {
+        const ok = await askConfirm(`把「${title}」放进回收站？\n\n回收站在「文档/墨匠/回收站」，能恢复。`);
         if (ok) {
             void removeBook(bookId);
         }
@@ -163,11 +184,14 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
      * 切换内容区
      * @param next 区
      */
-    function handleSection(next: ChapterSection): void {
-        if (dirty && !window.confirm('当前文档还有没保存的改动，切换会先保存。继续？')) {
-            return;
+    async function handleSection(next: ChapterSection): Promise<void> {
+        if (dirty) {
+            const ok = await askConfirm('当前文档还有没保存的改动，切换会先保存。继续？');
+            if (!ok) {
+                return;
+            }
         }
-        void setSection(next);
+        await setSection(next);
     }
 
     /**
@@ -247,9 +271,10 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
      * @param id 文档 id
      * @param title 标题
      */
-    function handleRemoveDocument(id: string, title: string): void {
-        if (window.confirm(`删除「${title}」？会移入项目内的回收站。`)) {
-            void removeChapter(id);
+    async function handleRemoveDocument(id: string, title: string): Promise<void> {
+        const ok = await askConfirm(`删除「${title}」？会移入项目内的回收站。`);
+        if (ok) {
+            await removeChapter(id);
         }
     }
 
@@ -403,7 +428,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                                         <button
                                             type="button"
                                             title="删除到回收站"
-                                            onClick={() => handleRemoveBook(item.id, item.title)}
+                                            onClick={() => void handleRemoveBook(item.id, item.title)}
                                             className="absolute right-1 top-1.5 hidden h-5 w-5 items-center justify-center rounded text-ink-500 hover:bg-red-500/20 hover:text-red-400 group-hover:flex"
                                         >
                                             ×
@@ -504,7 +529,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                             <button
                                 type="button"
                                 key={item.key}
-                                onClick={() => handleSection(item.key)}
+                                onClick={() => void handleSection(item.key)}
                                 className={`flex-1 rounded-full py-1 text-[13px] transition-colors ${
                                     section === item.key
                                         ? 'bg-jade-500/20 text-jade-400'
@@ -572,6 +597,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                             className="field h-7 flex-1 text-[13px]"
                             placeholder="文档标题"
                             autoFocus
+                            ref={docInputRef}
                             value={docTitle}
                             onChange={(event) => setDocTitle(event.target.value)}
                             onKeyDown={(event) => {
@@ -621,6 +647,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                                 className="field h-7 flex-1 text-[13px]"
                                 placeholder="文件夹名"
                                 autoFocus
+                                ref={folderInputRef}
                                 value={folderName}
                                 onChange={(event) => setFolderName(event.target.value)}
                                 onKeyDown={(event) => {

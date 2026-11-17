@@ -219,6 +219,11 @@ const api: MoJiangApi = {
             ipcRenderer.removeAllListeners('llm:stream');
         },
     },
+    dialog: {
+        /** 原生确认框，返回用户是否点了「确定」 */
+        confirm: (message: string, detail?: string): Promise<boolean> =>
+            ipcRenderer.invoke('dialog:confirm', message, detail),
+    },
     app: {
         paths: (): Promise<AppPaths> => ipcRenderer.invoke('app:paths'),
         revealRoot: () => ipcRenderer.invoke('app:revealRoot'),

@@ -514,6 +514,15 @@ export interface MoJiangApi {
         onStream(handler: (event: LlmStreamEvent) => void): void;
         offStream(): void;
     };
+    dialog: {
+        /**
+         * 原生确认框
+         * 不用 window.confirm：它关闭后会让中文输入法失效
+         * @param message 主文案
+         * @param detail 补充说明，可省略
+         */
+        confirm(message: string, detail?: string): Promise<boolean>;
+    };
     app: {
         paths(): Promise<AppPaths>;
         /** 在系统文件管理器里打开书库根目录 */

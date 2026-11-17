@@ -7,6 +7,7 @@ import {
 } from '@mojiang/core';
 import Modal from '@/components/Modal';
 import SkillToggle from '@/components/SkillToggle';
+import { askConfirm } from '@/lib/confirm';
 import { errorMessage } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -289,7 +290,7 @@ export default function SkillDialog({ open, onClose }: SkillDialogProps) {
      * @param skill 技能
      */
     async function handleRemove(skill: Skill): Promise<void> {
-        if (!window.confirm(`删除技能「${skill.name}」？删了就找不回来了。`)) {
+        if (!(await askConfirm(`删除技能「${skill.name}」？删了就找不回来了。`))) {
             return;
         }
         setBusy(true);

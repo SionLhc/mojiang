@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { compactDiff, diffLines, summarizeDiff } from '@mojiang/core';
 import type { SnapshotEntry } from '@shared/types';
 import Modal from '@/components/Modal';
+import { askConfirm } from '@/lib/confirm';
 import { errorMessage, formatTime } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -83,11 +84,11 @@ export default function VersionDialog({ open, onClose }: VersionDialogProps) {
     /**
      * 回滚前二次确认
      */
-    function handleRestore(): void {
+    async function handleRestore(): Promise<void> {
         if (!selected) {
             return;
         }
-        const ok = window.confirm(
+        const ok = await askConfirm(
             `回滚到 ${formatTime(snapshotFileNameToTime(selected))} 的版本？\n\n当前正文会先存一份快照，所以这次回滚也能再撤回。`,
         );
         if (ok) {

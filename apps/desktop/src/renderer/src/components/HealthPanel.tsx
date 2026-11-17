@@ -6,6 +6,7 @@ import {
     type Finding,
 } from '@mojiang/core';
 import RadarChart, { type RadarAxis } from '@/components/RadarChart';
+import { askConfirm } from '@/lib/confirm';
 import { useAppStore } from '@/store/useAppStore';
 
 /** 没有基线时的参考值，让雷达图先有个形状 */
@@ -75,7 +76,7 @@ export default function HealthPanel() {
             );
             return;
         }
-        const ok = window.confirm(
+        const ok = await askConfirm(
             `用这 ${candidateIds.length} 章的六维数据建基线？\n\n基线代表"你认可的写法"，之后的章节会和它比。`,
         );
         if (ok) {
