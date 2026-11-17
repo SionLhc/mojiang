@@ -114,6 +114,11 @@ const api: MoJiangApi = {
         read: (bookId: string) => ipcRenderer.invoke('plot:read', bookId),
         write: (bookId: string, graph: unknown) => ipcRenderer.invoke('plot:write', bookId, graph),
     },
+    recap: {
+        read: (bookId: string) => ipcRenderer.invoke('recap:read', bookId),
+        draft: (bookId: string) => ipcRenderer.invoke('recap:draft', bookId),
+        save: (bookId: string, content: string) => ipcRenderer.invoke('recap:save', bookId, content),
+    },
     mindboard: {
         read: (bookId: string) => ipcRenderer.invoke('mindboard:read', bookId),
         write: (bookId: string, graph: unknown) => ipcRenderer.invoke('mindboard:write', bookId, graph),
@@ -140,6 +145,20 @@ const api: MoJiangApi = {
         ocrImage: (bytes: Uint8Array, mimeType: string) =>
             ipcRenderer.invoke('attachment:ocr', bytes, mimeType),
     },
+    skill: {
+        list: () => ipcRenderer.invoke('skill:list'),
+        import: () => ipcRenderer.invoke('skill:import'),
+        installPath: (filePath: string) => ipcRenderer.invoke('skill:installPath', filePath),
+        installText: (text: string) => ipcRenderer.invoke('skill:installText', text),
+        installUrl: (url: string) => ipcRenderer.invoke('skill:installUrl', url),
+        market: () => ipcRenderer.invoke('skill:market'),
+        marketInstall: (id: string) => ipcRenderer.invoke('skill:marketInstall', id),
+        marketLoad: (url: string) => ipcRenderer.invoke('skill:marketLoad', url),
+        exportIndex: () => ipcRenderer.invoke('skill:exportIndex'),
+        toggle: (id: string, enabled: boolean) => ipcRenderer.invoke('skill:toggle', id, enabled),
+        remove: (id: string) => ipcRenderer.invoke('skill:remove', id),
+        reveal: () => ipcRenderer.invoke('skill:reveal'),
+    },
     stats: {
         read: () => ipcRenderer.invoke('stats:read'),
         record: (deltaChars: number, deltaSeconds: number) =>
@@ -156,6 +175,25 @@ const api: MoJiangApi = {
     settings: {
         read: () => ipcRenderer.invoke('settings:read'),
         update: (patch) => ipcRenderer.invoke('settings:update', patch),
+    },
+    style: {
+        pick: () => ipcRenderer.invoke('style:pick'),
+        distill: (request: { files: string[] }) => ipcRenderer.invoke('style:distill', request),
+        overview: () => ipcRenderer.invoke('style:overview'),
+    },
+    personal: {
+        overview: () => ipcRenderer.invoke('personal:overview'),
+        prompt: () => ipcRenderer.invoke('personal:prompt'),
+        setAnchor: (at) => ipcRenderer.invoke('personal:setAnchor', at),
+        clear: () => ipcRenderer.invoke('personal:clear'),
+        reveal: () => ipcRenderer.invoke('personal:reveal'),
+    },
+    preference: {
+        overview: () => ipcRenderer.invoke('preference:overview'),
+        mark: (input) => ipcRenderer.invoke('preference:mark', input),
+        remove: (id: string) => ipcRenderer.invoke('preference:remove', id),
+        clear: () => ipcRenderer.invoke('preference:clear'),
+        reveal: () => ipcRenderer.invoke('preference:reveal'),
     },
     secrets: {
         set: (providerId: ProviderId, apiKey: string) =>

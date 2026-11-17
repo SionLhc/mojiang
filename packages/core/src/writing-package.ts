@@ -1,14 +1,15 @@
 /**
- * 开写包：一次取齐 16 项上下文
+ * 开写包：一次取齐 17 项上下文
  * 核心约束：取不到的必须说明原因和补救方法，不许编。
  */
 
 import type { WritingPackage, WritingPackageItem } from './types';
 
-/** 16 项的固定定义，key 与顺序都不能随意改，AI 提示词依赖它 */
+/** 17 项的固定定义，key 与顺序都不能随意改，AI 提示词依赖它 */
 export const PACKAGE_SLOTS: Array<{ key: string; label: string; fix: string }> = [
     { key: 'previousTail', label: '上一章承接口', fix: '打开上一章正文，确认它已保存' },
     { key: 'hook', label: '上一章结尾钩子', fix: '在上一章末尾补一个未解决的悬念' },
+    { key: 'recap', label: '前情提要', fix: '在前情里补一句前面几卷发生了什么' },
     { key: 'beatSheet', label: '本章细纲', fix: '在"细纲"里为本章写 3-5 条情节节拍' },
     { key: 'characters', label: '出场人物卡', fix: '在"人设"里补齐本章出场角色的说话方式' },
     { key: 'foreshadows', label: '待回收伏笔', fix: '在"伏笔"里登记已埋的线索' },

@@ -5,7 +5,7 @@
  * 细纲是菜单、正文是成品，小说工具是后厨——AI 得看到全部才能做出完整判断。
  */
 
-import type { PlotGraph } from '@mojiang/core';
+import { renderPlotDigest, type PlotGraph } from '@mojiang/core';
 import { listChapters, readChapter, readTextFile } from './content';
 import { buildWritingPackage } from './package-builder';
 import { readPlot } from './plot';
@@ -18,7 +18,7 @@ export interface WritingContextPack {
     outline: string;
     /** 开写包各项：上一章衔接、出场人物、待回收伏笔、账本摘要、文风、硬约束等 */
     items: Array<{ key: string; label: string; content: string }>;
-    /** 剧情画板摘要（节点标题 + 一句话） */
+    /** 剧情画板摘要（最近节点 + 类型 + 连线） */
     plot: string;
     /** 当前章节序号，0 表示没定位到 */
     chapterNumber: number;
@@ -63,15 +63,11 @@ export async function buildWritingContext(
         }
     }
 
-    // 剧情画板摘要：节点标题 + 一句话，够 AI 判断故事走向
+    // 剧情画板：最近节点 + 类型 + 连线，够 AI 判断故事走到哪了
     let plot = '';
     try {
         const graph: PlotGraph = await readPlot(bookId);
-        plot = graph.nodes
-            .slice(0, 40)
-            .map((node) => `- ${node.title}${node.summary ? `：${node.summary}` : ''}`)
-            .join('\n')
-            .slice(0, 1200);
+        plot = renderPlotDigest(graph);
     } catch {
         // 画板读不到就跳过
     }

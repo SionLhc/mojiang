@@ -13,6 +13,8 @@ export interface ProviderPreference {
     id: ProviderId;
     baseUrl: string;
     model: string;
+    /** 模型上下文窗口（token），0 表示没填、按默认档带上下文 */
+    contextWindow: number;
 }
 
 /** 写作相关设置 */
@@ -28,7 +30,7 @@ export interface WritingSettings {
 }
 
 /** 界面主题 */
-export type ThemeId = 'paper' | 'snow' | 'green' | 'night';
+export type ThemeId = 'mist' | 'dusk' | 'paper' | 'snow' | 'green' | 'night';
 
 /** 正文字体 */
 export type BodyFont = 'system' | 'song' | 'kai' | 'hei';
@@ -58,6 +60,20 @@ export interface AiSettings {
     docsStyleGuide: string;
     /** 笔记项目的附加指令 */
     notesStyleGuide: string;
+    /** 学作者的改法（偏好蒸馏）：关掉就不再记录、不再新增示范 */
+    preferenceLearn: boolean;
+    /** 把学到的改法注入提示：关掉只停注入，已有的示范留着 */
+    preferenceInject: boolean;
+    /** 记录我的笔感（自蒸馏）：关掉后保存正文不再采样，已有画像留着 */
+    personalTraceLearn: boolean;
+    /** 把我的笔感注入提示：关掉只停注入，画像照样继续攒 */
+    personalTraceInject: boolean;
+}
+
+/** 技能商店设置 */
+export interface SkillSettings {
+    /** 外部清单地址，空字符串表示只用内置精选 */
+    marketIndexUrl: string;
 }
 
 /** 预算设置 */
@@ -93,6 +109,8 @@ export interface AppSettings {
     writing: WritingSettings;
     ui: UiSettings;
     ai: AiSettings;
+    /** 技能商店 */
+    skill: SkillSettings;
     budget: BudgetSettings;
     usage: UsageStats;
     /** AI 建议命中统计（采纳率） */
@@ -122,6 +140,8 @@ export function defaultSettings(): AppSettings {
             id: 'deepseek',
             baseUrl: 'https://api.deepseek.com/v1',
             model: 'deepseek-chat',
+            // 0 表示没填：按默认档带上下文，跟老版本行为一致
+            contextWindow: 0,
         },
         writing: {
             chapterWordTarget: 3000,
@@ -135,7 +155,7 @@ export function defaultSettings(): AppSettings {
             fontSize: 17,
             autoSnapshot: true,
             snapshotKeep: 50,
-            theme: 'paper',
+            theme: 'mist',
             uiScale: 1.05,
             bodyFont: 'system',
         },
@@ -143,6 +163,16 @@ export function defaultSettings(): AppSettings {
             novelStyleGuide: '',
             docsStyleGuide: '',
             notesStyleGuide: '',
+            // 默认打开：这是"越用越像你"的基础，作者可以在设置里随时关掉
+            preferenceLearn: true,
+            preferenceInject: true,
+            // 默认打开：不采样就永远攒不出自己的画像
+            personalTraceLearn: true,
+            // 默认打开：攒出来的画像只有注入才起作用
+            personalTraceInject: true,
+        },
+        skill: {
+            marketIndexUrl: '',
         },
         budget: {
             perChapterLimitCny: 1,
@@ -175,6 +205,10 @@ function mergeAiSettings(rawAi: Partial<AiSettings> | undefined, base: AiSetting
         novelStyleGuide: rawAi?.novelStyleGuide ?? legacy,
         docsStyleGuide: rawAi?.docsStyleGuide ?? base.docsStyleGuide,
         notesStyleGuide: rawAi?.notesStyleGuide ?? base.notesStyleGuide,
+        preferenceLearn: rawAi?.preferenceLearn ?? base.preferenceLearn,
+        preferenceInject: rawAi?.preferenceInject ?? base.preferenceInject,
+        personalTraceLearn: rawAi?.personalTraceLearn ?? base.personalTraceLearn,
+        personalTraceInject: rawAi?.personalTraceInject ?? base.personalTraceInject,
     };
 }
 
@@ -193,6 +227,7 @@ function mergeWithDefaults(raw: Partial<AppSettings>): AppSettings {
         writing: { ...base.writing, ...(raw.writing ?? {}) },
         ui: { ...base.ui, ...(raw.ui ?? {}) },
         ai: mergeAiSettings(raw.ai, base.ai),
+        skill: { ...base.skill, ...(raw.skill ?? {}) },
         budget: { ...base.budget, ...(raw.budget ?? {}) },
         usage: { ...base.usage, ...(raw.usage ?? {}) },
         aiStats: { ...base.aiStats, ...(raw.aiStats ?? {}) },

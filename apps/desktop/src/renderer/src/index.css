@@ -113,6 +113,60 @@
     --scroll-thumb: 40 51 65;
 }
 
+/* 清透：奶油白 + 薄荷青，默认主题，年轻但耐看 */
+:root[data-theme='mist'] {
+    color-scheme: light;
+    --ink-950: 250 248 244;
+    --ink-900: 255 255 255;
+    --ink-850: 247 245 240;
+    --ink-800: 234 230 222;
+    --ink-750: 226 221 211;
+    --ink-700: 212 206 194;
+    --ink-600: 158 152 140;
+    --ink-500: 122 117 106;
+    --ink-400: 96 92 84;
+    --ink-300: 74 71 64;
+    --ink-200: 48 46 42;
+    --ink-100: 28 27 25;
+    --jade-500: 18 184 134;
+    --jade-400: 43 201 154;
+    --jade-600: 12 166 120;
+    --amber-500: 245 158 11;
+    --caret: 18 184 134;
+    --selection-bg: 18 184 134 / 0.15;
+    --issue-bg: 245 158 11 / 0.12;
+    --issue-bar: 217 119 6 / 0.6;
+    --gutter: 176 170 158;
+    --scroll-thumb: 214 208 196;
+}
+
+/* 夜幕：深灰蓝 + 薄荷光，夜间潮感 */
+:root[data-theme='dusk'] {
+    color-scheme: dark;
+    --ink-950: 14 17 23;
+    --ink-900: 20 24 32;
+    --ink-850: 26 31 41;
+    --ink-800: 38 44 56;
+    --ink-750: 46 53 66;
+    --ink-700: 62 70 86;
+    --ink-600: 118 128 145;
+    --ink-500: 148 158 175;
+    --ink-400: 176 184 198;
+    --ink-300: 200 207 218;
+    --ink-200: 226 231 238;
+    --ink-100: 242 245 249;
+    --jade-500: 45 212 160;
+    --jade-400: 94 234 186;
+    --jade-600: 18 174 128;
+    --amber-500: 251 191 36;
+    --caret: 45 212 160;
+    --selection-bg: 45 212 160 / 0.22;
+    --issue-bg: 251 191 36 / 0.14;
+    --issue-bar: 251 191 36 / 0.55;
+    --gutter: 110 120 138;
+    --scroll-thumb: 58 66 82;
+}
+
 :root {
     /* 正文字体，设置里可换 */
     --body-font: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
@@ -517,6 +571,32 @@ body {
 
 .plot-handle:hover {
     background: rgb(var(--jade-500));
+}
+
+/* ---------- AI 对话气泡 ---------- */
+
+/* 用户气泡：薄荷青渐变描边 + 同色系浅底，比纯色块更轻快 */
+.bubble-user {
+    border: 1px solid transparent;
+    background:
+        linear-gradient(rgb(var(--jade-600) / 0.22), rgb(var(--jade-600) / 0.22)) padding-box,
+        linear-gradient(135deg, rgb(var(--jade-500) / 0.65), rgb(var(--jade-500) / 0.12)) border-box;
+}
+
+/* 气泡统一淡入：轻微上浮 + 渐显，动效时长统一 180ms */
+.bubble-enter {
+    animation: bubble-enter 0.18s ease-out both;
+}
+
+@keyframes bubble-enter {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* ---------- AI 对话等待动画 ---------- */

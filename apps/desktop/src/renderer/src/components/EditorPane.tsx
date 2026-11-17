@@ -15,6 +15,7 @@ import SensitiveView from '@/components/SensitiveView';
 import StatsView from '@/components/StatsView';
 import VersionDialog from '@/components/VersionDialog';
 import { formatCharCount } from '@/lib/format';
+import { markAiText } from '@/lib/preference';
 import { useAppStore } from '@/store/useAppStore';
 
 /** 编辑器区域属性 */
@@ -236,6 +237,8 @@ export default function EditorPane({ focusMode, onToggleFocus }: EditorPaneProps
             to = found + original.length;
         }
         editorRef.current?.replaceRange(from, to, rewritten);
+        // 记一笔 AI 的改法：作者之后再动笔，保存时就成了一组对照
+        markAiText(rewritten);
         clearSegmentResult();
         pushToast('success', '已替换这一段');
     }

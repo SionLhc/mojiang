@@ -45,24 +45,27 @@ export default function RightPanel() {
 
     return (
         <aside className="flex w-80 shrink-0 flex-col border-l border-ink-800 bg-ink-900">
-            <div className="flex h-9 shrink-0 items-center border-b border-ink-800">
-                {tabs.map((item) => (
-                    <button
-                        type="button"
-                        key={item.key}
-                        onClick={() => setTab(item.key)}
-                        className={`flex-1 border-b-2 py-2 text-[13px] transition-colors ${
-                            effectiveTab === item.key
-                                ? 'border-jade-500 text-jade-400'
-                                : 'border-transparent text-ink-500 hover:text-ink-300'
-                        }`}
-                    >
-                        {item.label}
-                    </button>
-                ))}
+            {/* 页签用胶囊分段控件：选中项带滑块底色，右侧留收起按钮 */}
+            <div className="flex h-11 shrink-0 items-center gap-1 border-b border-ink-800 px-2">
+                <div className="flex flex-1 rounded-full bg-ink-850 p-0.5">
+                    {tabs.map((item) => (
+                        <button
+                            type="button"
+                            key={item.key}
+                            onClick={() => setTab(item.key)}
+                            className={`flex-1 rounded-full py-1 text-[13px] transition-colors ${
+                                effectiveTab === item.key
+                                    ? 'bg-jade-500/20 text-jade-400'
+                                    : 'text-ink-500 hover:text-ink-300'
+                            }`}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
                 <button
                     type="button"
-                    className="w-8 text-ink-500 hover:text-ink-200"
+                    className="w-7 text-ink-500 hover:text-ink-200"
                     title="收起右栏"
                     onClick={() => setCollapsed(true)}
                 >

@@ -31,7 +31,7 @@ const MAX_TITLE_LENGTH = 40;
  * @param buffer 原始字节
  * @returns 文本
  */
-function decodeText(buffer: Buffer): string {
+export function decodeText(buffer: Buffer): string {
     if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
         return buffer.subarray(3).toString('utf-8');
     }

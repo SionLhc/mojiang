@@ -6,6 +6,8 @@
 import { ipcMain } from 'electron';
 import type { BookMeta, ChapterSection, CreateBookInput } from '../../shared/types';
 import { logError } from '../services/logger';
+import { samplePersonalTrace } from '../services/personal-trace';
+import { reconcileChapter } from '../services/preference';
 import {
     createBook,
     deleteBook,
@@ -153,9 +155,12 @@ export function registerContentIpc(): void {
         async (_event, bookId: string, section: ChapterSection, chapterId: string, content: string) => {
             try {
                 const settings = loadSettings();
-                return await writeChapter(
-                    assertBookId(bookId),
-                    assertSection(section),
+                const safeBookId = assertBookId(bookId);
+                const safeSection = assertSection(section);
+
+                const result = await writeChapter(
+                    safeBookId,
+                    safeSection,
                     chapterId,
                     content,
                     {
@@ -163,6 +168,23 @@ export function registerContentIpc(): void {
                         keep: settings.ui.snapshotKeep,
                     },
                 );
+
+                // 我的笔感：学作者自己怎么写。必须排在偏好对齐之前，
+                // 因为对齐会把"这一章 AI 写过什么"消费掉
+                if (safeSection === 'zhengwen' && settings.ai.personalTraceLearn) {
+                    samplePersonalTrace({
+                        bookId: safeBookId,
+                        chapterId,
+                        finalText: content,
+                    });
+                }
+
+                // 正文落盘这一刻才有"作者定稿"，偏好蒸馏挂在这里最准
+                if (safeSection === 'zhengwen' && settings.ai.preferenceLearn) {
+                    const learned = reconcileChapter(safeBookId, chapterId, content);
+                    return { ...result, learned };
+                }
+                return result;
             } catch (error) {
                 throw wrapError('保存章节', error);
             }

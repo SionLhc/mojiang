@@ -6,6 +6,7 @@
 
 import {
     assembleWritingPackage,
+    clipRecapForChapter,
     computeTextMetrics,
     DIMENSION_KEYS,
     DIMENSION_LABELS,
@@ -19,6 +20,7 @@ import {
 } from '@mojiang/core';
 import { listChapters, listFiles, readChapter, readJsonFile, readTextFile } from './content';
 import { readBookMeta } from './library';
+import { readRecap } from './recap';
 import { loadSettings } from './settings';
 
 /** 上一章取多少字作为承接口 */
@@ -170,6 +172,14 @@ export async function buildWritingPackage(bookId: string, chapterId: string): Pr
             input.hook = lastParagraph.trim();
         }
         input.lastReport = buildLastReport(previousText, properNouns);
+    }
+
+    // 前情提要：只取当前章之前的部分。长篇靠它记得前面几十章发生了什么，
+    // 没有这份文件时保持缺失状态，界面会提示作者去补
+    const recapFile = await readRecap(bookId);
+    const recap = clipRecapForChapter(recapFile.content, currentNumber);
+    if (recap.length > 0) {
+        input.recap = recap;
     }
 
     const beatSheet = await readTextFile(bookId, `细纲/${chapterId}.md`);

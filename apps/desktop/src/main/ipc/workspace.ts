@@ -9,6 +9,7 @@ import { logError } from '../services/logger';
 import { assertBookId } from '../services/paths';
 import { readMindBoard, writeMindBoard } from '../services/mind-board';
 import { readPlot, writePlot } from '../services/plot';
+import { buildRecapDraft, readRecap, saveRecap } from '../services/recap';
 import { buildWritingContext } from '../services/writing-context';
 import { createQuickNote } from '../services/quick-note';
 import { searchAll } from '../services/search';
@@ -122,6 +123,33 @@ export function registerWorkspaceIpc(): void {
             await writePlot(assertBookId(bookId), graph as never);
         } catch (error) {
             throw wrapError('保存剧情图', error);
+        }
+    });
+
+    ipcMain.handle('recap:read', async (_event, bookId: string) => {
+        try {
+            return await readRecap(assertBookId(bookId));
+        } catch (error) {
+            throw wrapError('读取前情提要', error);
+        }
+    });
+
+    ipcMain.handle('recap:draft', async (_event, bookId: string) => {
+        try {
+            return await buildRecapDraft(assertBookId(bookId));
+        } catch (error) {
+            throw wrapError('整理前情提要', error);
+        }
+    });
+
+    ipcMain.handle('recap:save', async (_event, bookId: string, content: string) => {
+        try {
+            if (typeof content !== 'string') {
+                throw new Error('前情内容非法');
+            }
+            await saveRecap(assertBookId(bookId), content);
+        } catch (error) {
+            throw wrapError('保存前情提要', error);
         }
     });
 

@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+    buildRetryPrompt,
     chatRolePrompt,
     composeSystemPrompt,
+    computeContextBudget,
+    formatWindowTokens,
+    matchAllSkills,
+    matchSkill,
+    MAX_SKILL_RETRY,
     parseChatOptions,
     parseOutlineChapters,
+    pickPreferencePairs,
+    preferencePromptBlock,
+    skillPromptBlock,
     splitProseBlocks,
+    toSkillKind,
+    validateSkillOutput,
     type OutlineChapter,
+    type PreferencePair,
     type ProjectKind,
+    type Skill,
 } from '@mojiang/core';
 import type { ChatMessage } from '@mojiang/llm';
 import Modal from '@/components/Modal';
+import SkillDialog from '@/components/SkillDialog';
 import { errorMessage, formatCharCount, formatCny } from '@/lib/format';
+import { markAiText } from '@/lib/preference';
 import { useAppStore } from '@/store/useAppStore';
 
 /** 一个已添加的附件（提取后的纯文本） */
@@ -32,6 +47,10 @@ interface ChatItem {
     pending?: boolean;
     error?: boolean;
     costCny?: number;
+    /** 这条回复命中的技能名（显示用） */
+    skillName?: string;
+    /** 输出校验没通过时的说明（自动重写前给作者一个交代） */
+    checkerNote?: string;
     /** 输入 token */
     promptTokens?: number;
     /** 输出 token */
@@ -54,9 +73,6 @@ interface SessionStats {
     adopted: number;
 }
 
-/** 上下文预算：整章太长时只发开头+结尾，控制 token 也防止被截断 */
-const MAX_CONTEXT_CHARS = 6000;
-
 /**
  * 把超长文本压进预算：开头四成 + 结尾六成（结尾是最近写的，更重要）
  * @param text 原文
@@ -70,6 +86,31 @@ function clipToBudget(text: string, budget: number): string {
     const headLength = Math.floor(budget * 0.4);
     const tailLength = budget - headLength;
     return `${text.slice(0, headLength)}\n……（中间省略）……\n${text.slice(-tailLength)}`;
+}
+
+/**
+ * 按字数预算保留最近的对话历史
+ * 界面照旧显示全部，只是请求里不带最早的几轮——否则越聊越贵，迟早撞上模型窗口
+ * @param items 全部记录
+ * @param budgetChars 历史预算（字），小于等于 0 表示不裁剪
+ * @returns 要发出去的历史
+ */
+function trimHistory(items: ChatItem[], budgetChars: number): ChatItem[] {
+    if (budgetChars <= 0) {
+        return items;
+    }
+    const kept: ChatItem[] = [];
+    let used = 0;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index];
+        const cost = item.content.length;
+        if (used + cost > budgetChars && kept.length > 0) {
+            break;
+        }
+        kept.unshift(item);
+        used += cost;
+    }
+    return kept;
 }
 
 /** 预估输出长度，用于算钱 */
@@ -267,8 +308,15 @@ export default function ChatPanel() {
 
     const pendingPrompt = useAppStore((state) => state.pendingPrompt);
     const setPendingPrompt = useAppStore((state) => state.setPendingPrompt);
+    const skillVersion = useAppStore((state) => state.skillVersion);
     const segmentRequest = useAppStore((state) => state.segmentRequest);
     const clearSegmentRequest = useAppStore((state) => state.clearSegmentRequest);
+
+    /** 上下文预算：按作者填的模型窗口算，没填就是默认档 */
+    const budget = useMemo(
+        () => computeContextBudget(settings?.provider.contextWindow),
+        [settings?.provider.contextWindow],
+    );
 
     const [items, setItems] = useState<ChatItem[]>([]);
     const [draft, setDraft] = useState('');
@@ -283,10 +331,29 @@ export default function ChatPanel() {
     /** 本次要带给 AI 的文档附件（提取后的纯文本） */
     const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
     const [session, setSession] = useState<SessionStats>(EMPTY_SESSION);
-    /** 最近一次发送的上下文覆盖：发出去多少字 / 本章共多少字 */
-    const [contextInfo, setContextInfo] = useState<{ sentChars: number; totalChars: number } | null>(
-        null,
+    /** 最近一次发送的上下文覆盖：发出去多少字 / 本章共多少字 / 省了几条历史 */
+    const [contextInfo, setContextInfo] = useState<{
+        sentChars: number;
+        totalChars: number;
+        omitted: number;
+    } | null>(null);
+    /** 已安装的技能（启用与否在技能对象里） */
+    const [skills, setSkills] = useState<Skill[]>([]);
+    /** 学到的改法：注入提示用，按当前项目类型过滤后再拼 */
+    const [preferencePairs, setPreferencePairs] = useState<PreferencePair[]>([]);
+    /** 我的笔感拼好的提示块：成熟度不够时是空串，等于不注入 */
+    const [personalPrompt, setPersonalPrompt] = useState('');
+    /** 技能管理弹窗是否打开 */
+    const [skillDialogOpen, setSkillDialogOpen] = useState(false);
+    /** 临时跳过的技能 id：只想这一轮不用，不动全局开关 */
+    const [skippedSkills, setSkippedSkills] = useState<Set<string>>(new Set());
+    /** 本轮真正参与匹配的技能：全局启用的减去临时跳过的 */
+    const activeSkills = useMemo(
+        () => skills.filter((skill) => !skippedSkills.has(skill.id)),
+        [skills, skippedSkills],
     );
+    /** 已启用的技能数，给顶部按钮显示，作者一眼知道有几条规则在生效 */
+    const enabledSkillCount = skills.filter((skill) => skill.enabled).length;
 
     // 「用到正文」的分段选择：null 表示弹窗关闭
     const [insertBlocks, setInsertBlocks] = useState<string[] | null>(null);
@@ -300,6 +367,14 @@ export default function ChatPanel() {
     const pendingSegmentRef = useRef<{ from: number; to: number; original: string } | null>(null);
     /** 本轮流式回复的累积文本（段落改写结果从这拿） */
     const pendingReplyRef = useRef('');
+    /** 本轮命中的技能：自动重试时继续沿用，不能重新匹配 */
+    const activeSkillRef = useRef<Skill | null>(null);
+    /** 本轮已自动重试次数，防止校验一直不过烧钱 */
+    const retryCountRef = useRef(0);
+    /** 校验没过时要补发的重写指令，置入后由 effect 发出去（避免陈旧闭包） */
+    const retryPromptRef = useRef<{ prompt: string; skill: Skill } | null>(null);
+    /** 重试触发计数：变化一次就发一次重写请求 */
+    const [retryTick, setRetryTick] = useState(0);
 
     /** 是不是小说项目（老数据没有 kind 按小说算） */
     const isNovelProject = !book?.kind || book.kind === 'novel';
@@ -398,6 +473,37 @@ export default function ChatPanel() {
         })();
     }, [settings]);
 
+    // 加载技能：技能页增删改后 skillVersion +1，这里跟着重新拉
+    useEffect(() => {
+        void (async () => {
+            try {
+                setSkills(await window.api.skill.list());
+            } catch {
+                setSkills([]);
+            }
+        })();
+    }, [skillVersion]);
+
+    // 加载学到的改法与我自己的笔感：换书时重拉一次，刚学到的东西下次进面板就能用上
+    useEffect(() => {
+        void (async () => {
+            try {
+                const data = await window.api.preference.overview();
+                setPreferencePairs(data.pairs);
+            } catch {
+                // 读不到就按"还没学到东西"处理，不影响对话
+                setPreferencePairs([]);
+            }
+            try {
+                const prompt = await window.api.personal.prompt();
+                setPersonalPrompt(prompt.block);
+            } catch {
+                // 笔感读不出来只少一段提示，对话照常
+                setPersonalPrompt('');
+            }
+        })();
+    }, [book?.id]);
+
     // 开写包点"发给 AI"时，把整包塞进输入框让作者补指令再发
     useEffect(() => {
         if (pendingPrompt && pendingPrompt.length > 0) {
@@ -424,6 +530,50 @@ export default function ChatPanel() {
             if (event.type === 'done') {
                 const promptTokens = event.usage?.promptTokens ?? 0;
                 const completionTokens = event.usage?.completionTokens ?? 0;
+                const finishedText = pendingReplyRef.current;
+                const skill = activeSkillRef.current;
+
+                // 技能校验：声明了规则就检查一遍，不合格自动重写（最多 2 次）
+                if (skill && skill.checkers.length > 0 && !pendingSegmentRef.current) {
+                    const failures = validateSkillOutput(finishedText, skill.checkers);
+                    if (failures.length > 0 && retryCountRef.current < MAX_SKILL_RETRY) {
+                        retryCountRef.current += 1;
+                        const attempt = retryCountRef.current;
+                        const reasons = failures.map((failure) => failure.message).join('；');
+                        // 把这一条标成"没通过"，作者能看到为什么又重写了一轮
+                        setItems((previous) =>
+                            previous.map((item) =>
+                                item.pending
+                                    ? {
+                                          ...item,
+                                          pending: false,
+                                          costCny: event.costCny,
+                                          model: event.model,
+                                          promptTokens,
+                                          completionTokens,
+                                          checkerNote: `没通过校验：${reasons}（自动重写第 ${attempt} 次）`,
+                                      }
+                                    : item,
+                            ),
+                        );
+                        setStreaming(false);
+                        currentRequestRef.current = null;
+                        pendingReplyRef.current = '';
+                        // 这一轮也花了钱，统计照记
+                        setSession((previous) => ({
+                            calls: previous.calls + 1,
+                            promptTokens: previous.promptTokens + promptTokens,
+                            completionTokens: previous.completionTokens + completionTokens,
+                            costCny: previous.costCny + (event.costCny ?? 0),
+                            suggestions: previous.suggestions + 1,
+                            adopted: previous.adopted,
+                        }));
+                        retryPromptRef.current = { prompt: buildRetryPrompt(failures), skill };
+                        setRetryTick((previous) => previous + 1);
+                        return;
+                    }
+                }
+
                 setItems((previous) =>
                     previous.map((item) =>
                         item.pending
@@ -497,6 +647,19 @@ export default function ChatPanel() {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [items]);
 
+    // 校验没过：等上一轮收尾渲染完成（streaming 复位）后再补发重写请求
+    useEffect(() => {
+        if (retryTick === 0) {
+            return;
+        }
+        const payload = retryPromptRef.current;
+        if (!payload) {
+            return;
+        }
+        retryPromptRef.current = null;
+        void sendMessage(payload.prompt, payload.skill);
+    }, [retryTick]);
+
     /**
      * 打开分段选择
      * @param text AI 回复全文
@@ -550,6 +713,8 @@ export default function ChatPanel() {
             .map((index) => insertBlocks[index])
             .join('\n\n');
         await appendToChapter(text);
+        // 必须写在落盘之后：对齐发生在下一次保存，先记会被这次保存直接吃掉
+        markAiText(text);
         markAdopted();
         setInsertBlocks(null);
     }
@@ -560,6 +725,7 @@ export default function ChatPanel() {
      */
     function replaceSelection(text: string): void {
         requestReplace(text);
+        markAiText(text);
         markAdopted();
         pushToast('success', '已替换到正文选中处');
     }
@@ -609,23 +775,30 @@ export default function ChatPanel() {
              * 按预算塞一块，超了整体截断
              * @param label 块标题
              * @param text 块内容
-             * @param budget 这块最多多少字
+             * @param limit 这块最多多少字
              */
-            const push = (label: string, text: string, budget: number): void => {
+            const push = (label: string, text: string, limit: number): void => {
                 const trimmed = text.trim();
-                if (trimmed.length === 0 || sentChars >= MAX_CONTEXT_CHARS) {
+                if (trimmed.length === 0 || sentChars >= budget.totalChars) {
                     return;
                 }
-                const clipped = clipToBudget(trimmed, Math.min(budget, MAX_CONTEXT_CHARS - sentChars));
+                const clipped = clipToBudget(
+                    trimmed,
+                    Math.min(limit, budget.totalChars - sentChars),
+                );
                 blocks.push(`【${label}】\n${clipped}`);
                 sentChars += clipped.length;
             };
-            push('当前章正文', pack.body, 2500);
-            push('本章细纲', pack.outline, 1000);
-            push('剧情画板', pack.plot, 800);
+            push('当前章正文', pack.body, budget.body);
+            push('本章细纲', pack.outline, budget.outline);
+            push('剧情画板', pack.plot, budget.plot);
             for (const item of pack.items) {
-                // 工具数据每项给 400 字，够 AI 判断又不会挤爆预算
-                push(item.label, item.content, 400);
+                // 前情提要要装几十章的摘要，单独给预算；其余工具项按项预算
+                push(
+                    item.label,
+                    item.content,
+                    item.key === 'recap' ? budget.recap : budget.packItem,
+                );
             }
             if (blocks.length === 0) {
                 return { block: null, sentChars: 0, totalChars, usedSelection: false };
@@ -643,7 +816,7 @@ export default function ChatPanel() {
 
         // 文档/笔记：只带当前文档
         if (content.trim().length > 0) {
-            const clipped = clipToBudget(content, MAX_CONTEXT_CHARS);
+            const clipped = clipToBudget(content, budget.totalChars);
             return {
                 block: `【当前文档内容，只作参考，不要整段复述】\n${clipped}`,
                 sentChars: clipped.length,
@@ -658,9 +831,15 @@ export default function ChatPanel() {
      * 组装发给模型的消息
      * @param input 作者这次的指令
      * @param contextBlock 上下文块
+     * @param skill 本轮命中的技能，null 表示没命中
      * @returns 消息数组
      */
-    function buildMessages(input: string, contextBlock: string | null): ChatMessage[] {
+    function buildMessages(
+        input: string,
+        contextBlock: string | null,
+        skill: Skill | null,
+        personalOverride?: string,
+    ): ChatMessage[] {
         // 附加指令也按项目类型取：小说、文档、笔记各用各的那一栏
         const kind = book?.kind ?? 'novel';
         const styleGuide =
@@ -670,11 +849,34 @@ export default function ChatPanel() {
                   ? (settings?.ai.notesStyleGuide ?? '')
                   : (settings?.ai.novelStyleGuide ?? '');
 
+        // 技能指令排在角色提示之后、附加指令之前：越靠后的系统提示，模型越当回事
+        const baseSystem = composeSystemPrompt(chatRolePrompt(book?.kind), styleGuide);
+
+        // 我的笔感排在通用规则之后、具体改法之前：
+        // "我是个怎么写的人"比"这一句我改成了什么"更靠近角色本身；
+        // 只在小说里注入，文档和笔记不该被叙事习惯影响
+        const personalBlock =
+            kind === 'novel' && settings?.ai.personalTraceInject !== false
+                ? (personalOverride ?? personalPrompt)
+                : '';
+        const withPersonal =
+            personalBlock.length > 0 ? `${baseSystem}\n\n${personalBlock}` : baseSystem;
+
+        // 作者的真实改法排在技能之前：技能的硬规则更该压轴，不能被风格示范盖过
+        const preferenceBlock =
+            settings?.ai.preferenceInject === false
+                ? ''
+                : preferencePromptBlock(pickPreferencePairs(preferencePairs, toSkillKind(kind)));
+        const withPreference =
+            preferenceBlock.length > 0 ? `${withPersonal}\n\n${preferenceBlock}` : withPersonal;
+
         const messages: ChatMessage[] = [
             {
                 role: 'system',
                 // 提示按项目类型来：小说是小说，工作文档/笔记各用各的规则
-                content: composeSystemPrompt(chatRolePrompt(book?.kind), styleGuide),
+                content: skill
+                    ? `${withPreference}\n\n${skillPromptBlock(skill)}`
+                    : withPreference,
             },
         ];
 
@@ -682,7 +884,8 @@ export default function ChatPanel() {
             messages.push({ role: 'user', content: contextBlock });
         }
 
-        for (const item of items) {
+        // 历史按预算保留最近的：界面还是全的，发出去的只带能装下的部分
+        for (const item of trimHistory(items, budget.history)) {
             if (item.error || item.content.trim().length === 0) {
                 continue;
             }
@@ -696,8 +899,9 @@ export default function ChatPanel() {
     /**
      * 发送一条消息
      * @param text 指令正文
+     * @param retryOf 传入表示这是校验重试，沿用它指定的技能；不传表示作者新发的一轮
      */
-    async function sendMessage(text: string): Promise<void> {
+    async function sendMessage(text: string, retryOf?: Skill | null): Promise<void> {
         const input = text.trim();
         if (input.length === 0 || streaming) {
             return;
@@ -705,6 +909,23 @@ export default function ChatPanel() {
         if (!settings) {
             pushToast('info', '先去设置里配模型');
             return;
+        }
+
+        // 作者新发的一轮才重新匹配技能；重试沿用上一轮，并保留重试计数
+        if (retryOf === undefined) {
+            const matched = matchSkill(input, toSkillKind(book?.kind), activeSkills);
+            activeSkillRef.current = matched?.skill ?? null;
+            retryCountRef.current = 0;
+        }
+        const skill = activeSkillRef.current;
+
+        // 笔感可能刚在设置里被切换（比如"回到从前"），不能还拿挂载时那一份；
+        // 主进程对这个块有 60 秒缓存，命中时几乎不花时间
+        let personalBlock = personalPrompt;
+        try {
+            personalBlock = (await window.api.personal.prompt()).block;
+        } catch {
+            // 取不到就沿用上次的，不影响这一轮对话
         }
 
         const context = await buildContext();
@@ -721,6 +942,7 @@ export default function ChatPanel() {
         setContextInfo({
             sentChars: context.sentChars + attachmentBlock.length,
             totalChars: context.totalChars + attachmentBlock.length,
+            omitted: items.length - trimHistory(items, budget.history).length,
         });
 
         const stamp = Date.now().toString(36);
@@ -737,8 +959,14 @@ export default function ChatPanel() {
             content: '',
             pending: true,
             fromSelection: context.usedSelection,
+            skillName: skill?.name,
         };
-        const messages = buildMessages(input, contextBlock.length > 0 ? contextBlock : null);
+        const messages = buildMessages(
+            input,
+            contextBlock.length > 0 ? contextBlock : null,
+            skill,
+            personalBlock,
+        );
 
         pendingReplyRef.current = '';
         setItems((previous) => [...previous, userItem, assistantItem]);
@@ -1070,6 +1298,16 @@ export default function ChatPanel() {
         return Math.min(100, Math.round((contextInfo.sentChars / contextInfo.totalChars) * 100));
     }, [contextInfo]);
 
+    // 输入草稿会命中哪些技能：第一个是本轮生效的，其余只作提示，避免作者以为技能全都一起上
+    const draftMatches = useMemo(
+        () =>
+            draft.trim().length > 0
+                ? matchAllSkills(draft, toSkillKind(book?.kind), activeSkills)
+                : [],
+        [draft, book?.kind, activeSkills],
+    );
+    const draftMatch = draftMatches[0] ?? null;
+
     // 采纳率：会话内 + 全局（都在 0-100 之间夹住）
     const sessionHit =
         session.suggestions > 0
@@ -1112,6 +1350,14 @@ export default function ChatPanel() {
                         <button
                             type="button"
                             className="shrink-0 text-[12px] text-ink-500 hover:text-ink-300"
+                            onClick={() => setSkillDialogOpen(true)}
+                            title="管理技能包：装、停用、删除"
+                        >
+                            技能 {enabledSkillCount}/{skills.length}
+                        </button>
+                        <button
+                            type="button"
+                            className="shrink-0 text-[12px] text-ink-500 hover:text-ink-300"
                             onClick={handleClear}
                         >
                             清空
@@ -1137,7 +1383,7 @@ export default function ChatPanel() {
                     <button
                         key={action.key}
                         type="button"
-                        className="shrink-0 rounded-full border border-ink-700 px-2 py-0.5 text-[12px] text-ink-300 transition-colors hover:border-jade-600 hover:text-jade-400 disabled:opacity-50"
+                        className="shrink-0 rounded-full border border-ink-700 px-2.5 py-0.5 text-[12px] text-ink-300 transition-all hover:-translate-y-px hover:border-jade-500/60 hover:bg-jade-500/10 hover:text-jade-400 active:translate-y-0 disabled:opacity-50"
                         onClick={() => runQuick(action)}
                         disabled={streaming}
                         title={action.needSelection ? '先在正文里选中一段' : action.prompt}
@@ -1230,15 +1476,24 @@ export default function ChatPanel() {
                         return (
                             <div
                                 key={item.id}
-                                className={item.role === 'user' ? 'text-right' : 'text-left'}
+                                className={`bubble-enter ${item.role === 'user' ? 'text-right' : 'text-left'}`}
                             >
+                                {/* 命中的技能挂在气泡上方，作者知道这一轮用了哪套套路 */}
+                                {item.role === 'assistant' && item.skillName && (
+                                    <div className="mb-1">
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-jade-500/10 px-2 py-0.5 text-[11px] text-jade-500">
+                                            <span className="h-1 w-1 rounded-full bg-jade-500" />
+                                            技能 · {item.skillName}
+                                        </span>
+                                    </div>
+                                )}
                                 <div
-                                    className={`inline-block max-w-full whitespace-pre-wrap rounded-lg px-2.5 py-2 text-left text-[13px] leading-relaxed ${
+                                    className={`inline-block max-w-full whitespace-pre-wrap rounded-2xl px-2.5 py-2 text-left text-[13px] leading-relaxed ${
                                         item.role === 'user'
-                                            ? 'bg-jade-600/20 text-ink-100'
+                                            ? 'bubble-user text-ink-100'
                                             : item.error
-                                              ? 'bg-red-500/10 text-red-300'
-                                              : 'bg-ink-850 text-ink-200'
+                                              ? 'rounded-bl-md bg-red-500/10 text-red-300 ring-1 ring-red-500/20'
+                                              : 'rounded-bl-md bg-ink-850 text-ink-200'
                                     }`}
                                 >
                                     {parsed.body}
@@ -1285,6 +1540,13 @@ export default function ChatPanel() {
                                             </button>
                                         ))}
                                     </div>
+                                )}
+
+                                {/* 校验没通过：告诉作者为什么重写，以及重写了几次 */}
+                                {item.checkerNote && (
+                                    <p className="mt-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] leading-relaxed text-amber-500">
+                                        {item.checkerNote}
+                                    </p>
                                 )}
 
                                 {(item.costCny !== undefined ||
@@ -1379,6 +1641,12 @@ export default function ChatPanel() {
                             {contextInfo
                                 ? `（${contextInfo.sentChars}/${contextInfo.totalChars} 字）`
                                 : ''}
+                            {contextInfo && contextInfo.omitted > 0
+                                ? `，已省略最早 ${contextInfo.omitted} 条对话`
+                                : ''}
+                            {budget.scaled
+                                ? ` · 按 ${formatWindowTokens(settings?.provider.contextWindow ?? 0)} 窗口`
+                                : ''}
                         </span>
                     )}
                     <span className="mx-1">·</span>
@@ -1420,8 +1688,60 @@ export default function ChatPanel() {
                         ))}
                     </div>
                 )}
-                <textarea
-                        className="field h-20 w-full resize-none text-[13px] leading-relaxed"
+                {/* 卡片式输入框：圆角卡片包裹，内部无边框，右下角圆形发送按钮 */}
+                <div className="rounded-2xl border border-ink-750 bg-ink-850/60 p-2 transition-colors focus-within:border-jade-500/50">
+                    {/* 触发词命中技能时提前提示，避免作者以为技能没生效 */}
+                    {draftMatch && (
+                        <div className="mb-1 flex items-center gap-1 px-1 text-[11px] text-jade-500">
+                            <span className="h-1 w-1 shrink-0 rounded-full bg-jade-500" />
+                            <span className="min-w-0 flex-1">
+                                <span className="block truncate">
+                                    将使用技能「{draftMatch.skill.name}」· 触发词「
+                                    {draftMatch.trigger}」
+                                </span>
+                                {/* 同时命中多个时说明白：一轮只用一个技能，不是全部叠加 */}
+                                {draftMatches.length > 1 && (
+                                    <span className="block truncate text-ink-600">
+                                        另有{' '}
+                                        {draftMatches
+                                            .slice(1)
+                                            .map((match) => match.skill.name)
+                                            .join('、')}{' '}
+                                        也匹配，本轮不用
+                                    </span>
+                                )}
+                            </span>
+                            <button
+                                type="button"
+                                className="shrink-0 text-ink-500 hover:text-ink-300"
+                                onClick={() =>
+                                    setSkippedSkills((previous) =>
+                                        new Set(previous).add(draftMatch.skill.id),
+                                    )
+                                }
+                                title="这一轮先不用这个技能，下次输入还会正常命中"
+                            >
+                                这次不用
+                            </button>
+                        </div>
+                    )}
+                    {/* 临时跳过之后给个撤销口，不然作者会以为技能坏了 */}
+                    {skippedSkills.size > 0 && (
+                        <div className="mb-1 flex items-center gap-1 px-1 text-[11px] text-ink-500">
+                            <span className="min-w-0 flex-1 truncate">
+                                已临时跳过 {skippedSkills.size} 个技能
+                            </span>
+                            <button
+                                type="button"
+                                className="shrink-0 text-jade-500 hover:underline"
+                                onClick={() => setSkippedSkills(new Set())}
+                            >
+                                恢复
+                            </button>
+                        </div>
+                    )}
+                    <textarea
+                        className="h-20 w-full resize-none bg-transparent text-[13px] leading-relaxed placeholder:text-ink-500 focus:outline-none"
                         placeholder="说你要什么。Enter 发送，Shift+Enter 换行。文档/图片可以直接粘贴或拖进来"
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
@@ -1456,28 +1776,47 @@ export default function ChatPanel() {
                             // 纯文本走默认粘贴
                         }}
                     />
-                <div className="mt-1.5 flex items-center justify-between">
-                    <span className="text-[13px] text-ink-600">
-                        {settings
-                            ? `本月 ${formatCny(settings.usage.costCny)} / 上限 ${formatCny(
-                                  settings.budget.monthlyLimitCny,
-                              )}`
-                            : ''}
-                    </span>
-                    {streaming ? (
-                        <button type="button" className="btn-outline text-[13px]" onClick={handleStop}>
-                            停止
-                        </button>
-                    ) : (
-                        <button
-                            type="button"
-                            className="btn-primary text-[13px]"
-                            onClick={handleSend}
-                            disabled={draft.trim().length === 0}
-                        >
-                            发送
-                        </button>
-                    )}
+                    <div className="mt-1 flex items-center justify-between">
+                        <span className="px-1 text-[11px] text-ink-600">
+                            {settings
+                                ? `本月 ${formatCny(settings.usage.costCny)} / 上限 ${formatCny(
+                                      settings.budget.monthlyLimitCny,
+                                  )}`
+                                : ''}
+                        </span>
+                        {streaming ? (
+                            <button
+                                type="button"
+                                className="btn-outline h-8 rounded-full px-3 text-[12px]"
+                                onClick={handleStop}
+                                title="停止生成"
+                            >
+                                停止
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={handleSend}
+                                disabled={draft.trim().length === 0}
+                                className="flex h-8 w-8 items-center justify-center rounded-full bg-jade-500 text-ink-950 transition-all hover:bg-jade-400 active:scale-95 disabled:opacity-40"
+                                title="发送（Enter）"
+                            >
+                                <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <path d="M12 19V5" />
+                                    <path d="m5 12 7-7 7 7" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -1583,6 +1922,8 @@ export default function ChatPanel() {
                     ))}
                 </div>
             </Modal>
+
+            <SkillDialog open={skillDialogOpen} onClose={() => setSkillDialogOpen(false)} />
         </div>
     );
 }

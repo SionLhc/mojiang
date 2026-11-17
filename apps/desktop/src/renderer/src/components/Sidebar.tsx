@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { PROJECT_KINDS, getProjectFeatures, type ProjectKind } from '@mojiang/core';
 import DocumentTree from '@/components/DocumentTree';
 import RecycleDialog from '@/components/RecycleDialog';
+import StyleDistillDialog from '@/components/StyleDistillDialog';
 import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { collectTags, filterTreeByTag } from '@/lib/tree';
 import { useAppStore } from '@/store/useAppStore';
@@ -58,8 +59,14 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
 
     const [docInputOpen, setDocInputOpen] = useState(false);
     const [docTitle, setDocTitle] = useState('');
+    /** 正在提交新建文档，用来挡住重复回车 */
+    const submittingRef = useRef(false);
+    /** 正在提交新建文件夹，同样用来挡重复回车 */
+    const folderSubmittingRef = useRef(false);
     /** 书内回收站弹窗 */
     const [recycleOpen, setRecycleOpen] = useState(false);
+    /** 人味蒸馏弹窗（小说专用） */
+    const [distillOpen, setDistillOpen] = useState(false);
     /** 双击改书名的编辑态 */
     const [renamingTitle, setRenamingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState('');
@@ -171,6 +178,8 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
             void createChapter();
             return;
         }
+        // 每次打开都清空上一次残留的标题，避免把上次的名字带进来
+        setDocTitle('');
         setDocInputOpen(true);
     }
 
@@ -182,9 +191,22 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
         if (title.length === 0) {
             return;
         }
-        await createChapter(title);
-        setDocTitle('');
-        setDocInputOpen(false);
+        // 回车按得快会连着提交两次，第二次会建成「标题-2」，这里挡一下
+        if (submittingRef.current) {
+            return;
+        }
+        submittingRef.current = true;
+        try {
+            const created = await createChapter(title);
+            // 只有真的建成了才收起输入框；失败时把用户输入留着，方便改个名字再试
+            if (!created) {
+                return;
+            }
+            setDocTitle('');
+            setDocInputOpen(false);
+        } finally {
+            submittingRef.current = false;
+        }
     }
 
     /**
@@ -195,9 +217,21 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
         if (name.length === 0) {
             return;
         }
-        await createFolder(name);
-        setFolderName('');
-        setFolderInputOpen(false);
+        if (folderSubmittingRef.current) {
+            return;
+        }
+        folderSubmittingRef.current = true;
+        try {
+            const created = await createFolder(name);
+            // 建失败就留着输入，别让用户以为白打了
+            if (!created) {
+                return;
+            }
+            setFolderName('');
+            setFolderInputOpen(false);
+        } finally {
+            folderSubmittingRef.current = false;
+        }
     }
 
     /**
@@ -428,7 +462,8 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                         onChange={(event) => setTitleDraft(event.target.value)}
                         onBlur={() => setRenamingTitle(false)}
                         onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
+                            // 输入法选词时按回车只上屏，不改书名
+                            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                                 void updateBookTitle(titleDraft);
                                 setRenamingTitle(false);
                             }
@@ -456,28 +491,30 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                 </span>
             </div>
 
-            {/* 小说才有正文/细纲两栏 */}
+            {/* 小说才有正文/细纲两栏：胶囊分段控件，选中项带滑块底色 */}
             {features.beatSheet && (
-                <div className="flex shrink-0 border-b border-ink-800">
-                    {(
-                        [
-                            { key: 'zhengwen', label: '正文' },
-                            { key: 'xigang', label: '细纲' },
-                        ] as Array<{ key: ChapterSection; label: string }>
-                    ).map((item) => (
-                        <button
-                            type="button"
-                            key={item.key}
-                            onClick={() => handleSection(item.key)}
-                            className={`flex-1 border-b-2 py-2 text-[13px] transition-colors ${
-                                section === item.key
-                                    ? 'border-jade-500 text-jade-400'
-                                    : 'border-transparent text-ink-500 hover:text-ink-300'
-                            }`}
-                        >
-                            {item.label}
-                        </button>
-                    ))}
+                <div className="shrink-0 border-b border-ink-800 px-2 py-1.5">
+                    <div className="flex rounded-full bg-ink-850 p-0.5">
+                        {(
+                            [
+                                { key: 'zhengwen', label: '正文' },
+                                { key: 'xigang', label: '细纲' },
+                            ] as Array<{ key: ChapterSection; label: string }>
+                        ).map((item) => (
+                            <button
+                                type="button"
+                                key={item.key}
+                                onClick={() => handleSection(item.key)}
+                                className={`flex-1 rounded-full py-1 text-[13px] transition-colors ${
+                                    section === item.key
+                                        ? 'bg-jade-500/20 text-jade-400'
+                                        : 'text-ink-500 hover:text-ink-300'
+                                }`}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -538,10 +575,12 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                             value={docTitle}
                             onChange={(event) => setDocTitle(event.target.value)}
                             onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
+                                // 中文输入法正在选词时按回车是「上屏」，不能当成提交
+                                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                                     void submitNewDocument();
                                 }
                                 if (event.key === 'Escape') {
+                                    setDocTitle('');
                                     setDocInputOpen(false);
                                 }
                             }}
@@ -585,10 +624,11 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                                 value={folderName}
                                 onChange={(event) => setFolderName(event.target.value)}
                                 onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
+                                    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                                         void submitNewFolder();
                                     }
                                     if (event.key === 'Escape') {
+                                        setFolderName('');
                                         setFolderInputOpen(false);
                                     }
                                 }}
@@ -605,7 +645,10 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                         <button
                             type="button"
                             className="btn-ghost w-full justify-start text-[13px]"
-                            onClick={() => setFolderInputOpen(true)}
+                            onClick={() => {
+                                setFolderName('');
+                                setFolderInputOpen(true);
+                            }}
                         >
                             + 新建文件夹
                         </button>
@@ -620,6 +663,17 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
                         onClick={onOpenOutline}
                     >
                         八问大纲
+                    </button>
+                )}
+                {/* 人味蒸馏只在小说里出现：它是给"写小说"用的工具，不是第四种项目类型 */}
+                {(book.kind ?? 'novel') === 'novel' && (
+                    <button
+                        type="button"
+                        className="btn-ghost w-full justify-start text-[13px]"
+                        onClick={() => setDistillOpen(true)}
+                        title="喂几本人写的书，学人的思路，去掉 AI 味"
+                    >
+                        人味蒸馏
                     </button>
                 )}
                 <button
@@ -640,6 +694,7 @@ export default function Sidebar({ onOpenOutline, onOpenSettings, onOpenExport }:
 
             {/* 书内回收站弹窗（章节模式） */}
             <RecycleDialog open={recycleOpen} onClose={() => setRecycleOpen(false)} bookId={book.id} />
+            <StyleDistillDialog open={distillOpen} onClose={() => setDistillOpen(false)} />
         </aside>
     );
 }

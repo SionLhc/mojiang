@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { PROJECT_KINDS, type ProjectKind } from '@mojiang/core';
 import Modal from '@/components/Modal';
+import StyleDistillDialog from '@/components/StyleDistillDialog';
 import { errorMessage, formatCharCount, formatTime } from '@/lib/format';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -61,6 +62,8 @@ export default function HomeView() {
     const [genre, setGenre] = useState('');
     const [query, setQuery] = useState('');
     const [creating, setCreating] = useState(false);
+    /** 人味蒸馏弹窗（只服务小说，跟文档/笔记分开） */
+    const [distillOpen, setDistillOpen] = useState(false);
 
     const visibleBooks = useMemo(() => {
         const keyword = query.trim().toLowerCase();
@@ -214,6 +217,25 @@ export default function HomeView() {
                     ))}
                 </div>
 
+                {/* 小说专用工具：人味蒸馏。放在三卡下面单独一条，明确它不是第四种项目类型 */}
+                <section className="mt-4 flex items-center gap-3 rounded-xl border border-jade-600/25 bg-jade-500/[0.04] px-4 py-3">
+                    <span className="flex h-8 shrink-0 items-center rounded-md bg-jade-600/15 px-2 text-[12px] text-jade-400">
+                        小说专用
+                    </span>
+                    <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-ink-400">
+                        <span className="font-medium text-ink-200">人味蒸馏</span>
+                        ：上传 3~4 本别人写的书，统计人的思路痕迹——会忘、会重复、段落不收尾、
+                        笔墨不均，把「去 AI 味」变成一条一直生效的约束。
+                    </p>
+                    <button
+                        type="button"
+                        className="btn-outline h-8 shrink-0 text-[13px]"
+                        onClick={() => setDistillOpen(true)}
+                    >
+                        上传书籍
+                    </button>
+                </section>
+
                 {/* 已有项目 */}
                 <section className="mt-12">
                     {/* 标题和搜索上下错开：搜索略靠上，避免和标题在同一水平线挤着 */}
@@ -309,6 +331,8 @@ export default function HomeView() {
                     随时可以用别的编辑器打开，不锁在应用里。
                 </footer>
             </div>
+
+            <StyleDistillDialog open={distillOpen} onClose={() => setDistillOpen(false)} />
 
             {/* 命名表单 */}
             <Modal

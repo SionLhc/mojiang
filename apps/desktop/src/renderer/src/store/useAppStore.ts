@@ -83,6 +83,8 @@ interface AppStore {
     rightTab: 'health' | 'chat';
     /** 待注入 AI 对话输入框的内容（开写包"发给 AI"用） */
     pendingPrompt: string | null;
+    /** 技能列表版本号：技能页增删改后 +1，AI 面板据此重新拉技能 */
+    skillVersion: number;
     /** 编辑器里当前选中的文本，空字符串表示没有选中 */
     editorSelection: string;
     /** 待写回编辑器的文本（AI"替换选中"用），写完由编辑器消费掉 */
@@ -102,7 +104,8 @@ interface AppStore {
 
     bootstrap: () => Promise<void>;
     refreshTree: () => Promise<void>;
-    createFolder: (name: string, parentPath?: string) => Promise<void>;
+    /** 新建文件夹，返回是否真的建成了（失败时已经弹过 toast） */
+    createFolder: (name: string, parentPath?: string) => Promise<boolean>;
     setDocumentTags: (chapterId: string, tags: string[]) => Promise<void>;
     openSearch: () => void;
     closeSearch: () => void;
@@ -124,6 +127,8 @@ interface AppStore {
     saveLedger: (ledger: LedgerFile) => Promise<void>;
     saveForeshadow: (file: ForeshadowFile) => Promise<void>;
     setPendingPrompt: (text: string | null) => void;
+    /** 技能有增删改时通知 AI 面板重新拉取 */
+    bumpSkills: () => void;
     /** 更新编辑器选中文本（相同值不触发更新） */
     setEditorSelection: (text: string) => void;
     /** 请求把文本替换到编辑器选区 */
@@ -154,7 +159,8 @@ interface AppStore {
     closeBook: () => void;
     setSection: (section: ChapterSection) => Promise<void>;
     openChapter: (chapterId: string) => Promise<void>;
-    createChapter: (title?: string, parentPath?: string) => Promise<void>;
+    /** 新建一篇内容，返回是否真的建成了（失败时已经弹过 toast） */
+    createChapter: (title?: string, parentPath?: string) => Promise<boolean>;
     removeChapter: (chapterId: string) => Promise<void>;
     setContent: (text: string) => void;
     save: () => Promise<void>;
@@ -260,6 +266,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     activeView: 'chapter',
     rightTab: 'health',
     pendingPrompt: null,
+    skillVersion: 0,
     editorSelection: '',
     pendingReplace: null,
     segmentRequest: null,
@@ -289,13 +296,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     createFolder: async (name, parentPath) => {
         const { book, section } = get();
         if (!book) {
-            return;
+            return false;
         }
         try {
             await window.api.tree.createFolder(book.id, section, name, parentPath);
             await get().refreshTree();
+            return true;
         } catch (error) {
             get().pushToast('error', errorMessage(error));
+            return false;
         }
     },
 
@@ -399,6 +408,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     setPendingPrompt: (text) => {
         set({ pendingPrompt: text });
+    },
+
+    bumpSkills: () => {
+        set({ skillVersion: get().skillVersion + 1 });
     },
 
     setEditorSelection: (text) => {
@@ -750,7 +763,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     createChapter: async (title, parentPath) => {
         const { book, section } = get();
         if (!book) {
-            return;
+            return false;
         }
         try {
             const chapter = await window.api.chapter.create(book.id, section, title, parentPath);
@@ -760,8 +773,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
             ]);
             set({ chapters, tree });
             await get().openChapter(chapter.id);
+            return true;
         } catch (error) {
+            // 失败时把原因说清楚，调用方会保留输入框让用户重试
             get().pushToast('error', errorMessage(error));
+            return false;
         }
     },
 

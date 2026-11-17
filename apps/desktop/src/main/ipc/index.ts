@@ -11,8 +11,11 @@ import { registerContentIpc, registerLibraryIpc } from './library';
 import { registerLlmIpc } from './llm';
 import { registerMarketIpc } from './market';
 import { registerPackageIpc } from './package';
+import { registerPreferenceIpc } from './preference';
 import { registerAppIpc, registerSettingsIpc } from './settings';
+import { registerSkillIpc } from './skill';
 import { registerStatsIpc } from './stats';
+import { registerStyleIpc } from './style';
 import { registerWorkspaceIpc } from './workspace';
 
 /**
@@ -32,4 +35,7 @@ export function registerAllIpc(): void {
     registerStatsIpc();
     registerAppIpc();
     registerAttachmentIpc();
+    registerSkillIpc();
+    registerPreferenceIpc();
+    registerStyleIpc();
 }

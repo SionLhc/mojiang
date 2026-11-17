@@ -49,7 +49,9 @@ export default function Onboarding() {
             if (apiKey.trim().length > 0) {
                 await window.api.secrets.set(providerId, apiKey.trim());
             }
-            await updateSettings({ provider: { id: providerId, baseUrl, model } });
+            await updateSettings({
+                provider: { id: providerId, baseUrl, model, contextWindow: 0 },
+            });
             const result = await window.api.llm.test(providerId, baseUrl);
             setTestResult(result);
         } catch (error) {
@@ -67,7 +69,8 @@ export default function Onboarding() {
         try {
             await updateSettings({
                 firstRunDone: true,
-                provider: { id: providerId, baseUrl, model },
+                // 引导页不填上下文窗口，交给作者之后到设置里按模型填
+                provider: { id: providerId, baseUrl, model, contextWindow: 0 },
             });
             if (withBook && bookTitle.trim().length > 0) {
                 await createBook({ title: bookTitle.trim(), genre, chapterWordTarget: 3000 });

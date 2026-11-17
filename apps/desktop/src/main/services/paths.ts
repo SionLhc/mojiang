@@ -107,6 +107,30 @@ export function getLogDir(): string {
 }
 
 /**
+ * 技能目录，技能包（.mjskill）放在这里
+ * @returns 绝对路径
+ */
+export function getSkillDir(): string {
+    return join(getRootDir(), '技能');
+}
+
+/**
+ * 偏好目录，学到的"作者改法"存在这里，和书库分开，删书不会丢
+ * @returns 绝对路径
+ */
+export function getPreferenceDir(): string {
+    return join(getRootDir(), '偏好');
+}
+
+/**
+ * 人味目录，蒸馏出的人味档案放这里（只存数字与书名，不存原文）
+ * @returns 绝对路径
+ */
+export function getStyleDir(): string {
+    return join(getRootDir(), '笔法');
+}
+
+/**
  * 设置文件路径（不含任何 Key）
  * @returns 绝对路径
  */
@@ -119,7 +143,16 @@ export function getSettingsPath(): string {
  * 第一次启动和换目录时都要调，幂等
  */
 export function ensureRootDirs(): void {
-    for (const dir of [getRootDir(), getLibraryDir(), getRecycleDir(), getLexiconDir(), getLogDir()]) {
+    for (const dir of [
+        getRootDir(),
+        getLibraryDir(),
+        getRecycleDir(),
+        getLexiconDir(),
+        getLogDir(),
+        getSkillDir(),
+        getPreferenceDir(),
+        getStyleDir(),
+    ]) {
         if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
         }

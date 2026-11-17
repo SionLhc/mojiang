@@ -3,7 +3,13 @@ node_modules/
 out/
 dist/
 release/
+release-*/
+dist-test/
 *.tsbuildinfo
+
+# 临时脚本与临时数据（E2E 复现用，不入库）
+__tmp*
+tmp-*
 
 # 环境变量与本地配置（绝不提交 Key）
 .env

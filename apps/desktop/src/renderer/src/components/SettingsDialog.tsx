@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
-import { chatRolePrompt, type ProjectKind } from '@mojiang/core';
+import {
+    chatRolePrompt,
+    describeBudgetChars,
+    formatWindowTokens,
+    type ProjectKind,
+} from '@mojiang/core';
 import { DEFAULT_BASE_URLS, DEFAULT_MODELS, PROVIDER_INFO, type ProviderId } from '@mojiang/llm';
 import type { AppPaths, ConnectionResult } from '@shared/types';
 import Modal from '@/components/Modal';
+import PreferenceSettings from '@/components/PreferenceSettings';
 import RecycleDialog from '@/components/RecycleDialog';
+import SkillSettings from '@/components/SkillSettings';
 import {
     BODY_FONTS,
     THEMES,
@@ -21,13 +28,15 @@ interface SettingsDialogProps {
 }
 
 /** 标签页 */
-type SettingsTab = 'model' | 'writing' | 'ai' | 'appearance' | 'data';
+type SettingsTab = 'model' | 'writing' | 'ai' | 'preference' | 'skill' | 'appearance' | 'data';
 
 /** 页签定义，顺序即展示顺序 */
 const TABS: Array<{ key: SettingsTab; label: string }> = [
     { key: 'model', label: '模型' },
     { key: 'writing', label: '写作' },
     { key: 'ai', label: 'AI 指令' },
+    { key: 'preference', label: '偏好' },
+    { key: 'skill', label: '技能' },
     { key: 'appearance', label: '外观' },
     { key: 'data', label: '数据' },
 ];
@@ -46,6 +55,14 @@ const GUIDE_KINDS: Array<{ key: ProjectKind; label: string }> = [
     { key: 'notes', label: '笔记' },
 ];
 
+/** 常见上下文窗口，点一下就填上 */
+const CONTEXT_WINDOW_PRESETS: Array<{ label: string; value: number }> = [
+    { label: '64K', value: 64_000 },
+    { label: '128K', value: 128_000 },
+    { label: '200K', value: 200_000 },
+    { label: '1M', value: 1_000_000 },
+];
+
 /**
  * 设置弹窗
  * 所有改动点"保存"才生效，避免手滑把 Key 或模型改坏
@@ -61,6 +78,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     const [providerId, setProviderId] = useState<ProviderId>('deepseek');
     const [baseUrl, setBaseUrl] = useState('');
     const [model, setModel] = useState('');
+    /** 模型上下文窗口（token），0 表示没填 */
+    const [contextWindow, setContextWindow] = useState(0);
     const [apiKey, setApiKey] = useState('');
     const [hasKey, setHasKey] = useState(false);
     const [encryption, setEncryption] = useState('');
@@ -71,9 +90,13 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     /** 回收站弹窗（叠在设置之上） */
     const [recycleOpen, setRecycleOpen] = useState(false);
 
+    /** 前情提要正文：作者可以直接改，也可以让画板帮他整理 */
+    const [recapText, setRecapText] = useState('');
+    const [recapBusy, setRecapBusy] = useState(false);
+
     const [wordTarget, setWordTarget] = useState(3000);
     const [fontSize, setFontSize] = useState(17);
-    const [theme, setTheme] = useState<ThemeId>('paper');
+    const [theme, setTheme] = useState<ThemeId>('mist');
     const [uiScale, setUiScale] = useState(1);
     const [bodyFont, setBodyFont] = useState<BodyFontId>('system');
     /** AI 指令页当前在编辑哪一类项目 */
@@ -95,6 +118,7 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         setProviderId(settings.provider.id);
         setBaseUrl(settings.provider.baseUrl);
         setModel(settings.provider.model);
+        setContextWindow(settings.provider.contextWindow ?? 0);
         setWordTarget(settings.writing.chapterWordTarget);
         setFontSize(settings.ui.fontSize);
         setTheme(settings.ui.theme);
@@ -130,6 +154,28 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         })();
     }, [open, settings]);
 
+    // 打开写作页时读一下前情，让作者知道自己现在带了什么
+    useEffect(() => {
+        const book = useAppStore.getState().book;
+        if (!open || tab !== 'writing' || !book || book.kind !== 'novel') {
+            return;
+        }
+        let alive = true;
+        void window.api.recap
+            .read(book.id)
+            .then((file) => {
+                if (alive) {
+                    setRecapText(file.content);
+                }
+            })
+            .catch(() => {
+                // 读不到就当空着，不打扰作者
+            });
+        return () => {
+            alive = false;
+        };
+    }, [open, tab]);
+
     if (!settings) {
         return null;
     }
@@ -147,6 +193,52 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     }
 
     /**
+     * 用剧情画板整理一份前情草稿，先填进编辑框，作者确认后再保存
+     */
+    async function handleRecapDraft(): Promise<void> {
+        const book = useAppStore.getState().book;
+        if (!book) {
+            return;
+        }
+        setRecapBusy(true);
+        try {
+            const draft = await window.api.recap.draft(book.id);
+            setRecapText(draft.content);
+            const skipped =
+                draft.unlocated > 0 ? `，另有 ${draft.unlocated} 个没绑章号的节点没纳入` : '';
+            pushToast(
+                'info',
+                draft.nodes > 0
+                    ? `整理好了：${draft.nodes} 个节点${skipped}。确认没问题再点保存`
+                    : '画板上还没有带章号的节点，先往画板里记几场戏再整理',
+            );
+        } catch (error) {
+            pushToast('error', errorMessage(error));
+        } finally {
+            setRecapBusy(false);
+        }
+    }
+
+    /**
+     * 保存前情提要：写进书目录，下一轮写正文就会带上
+     */
+    async function handleRecapSave(): Promise<void> {
+        const book = useAppStore.getState().book;
+        if (!book) {
+            return;
+        }
+        setRecapBusy(true);
+        try {
+            await window.api.recap.save(book.id, recapText);
+            pushToast('success', '前情提要已保存，下一轮写正文会带上');
+        } catch (error) {
+            pushToast('error', errorMessage(error));
+        } finally {
+            setRecapBusy(false);
+        }
+    }
+
+    /**
      * 保存全部设置
      */
     async function handleSave(): Promise<void> {
@@ -158,7 +250,12 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 await window.api.secrets.set(providerId, apiKey.trim());
             }
             await updateSettings({
-                provider: { id: providerId, baseUrl, model },
+                provider: {
+                    id: providerId,
+                    baseUrl,
+                    model,
+                    contextWindow: Math.max(0, Math.floor(contextWindow) || 0),
+                },
                 writing: {
                     chapterWordTarget: wordTarget,
                     forbiddenWords: forbiddenWords
@@ -173,6 +270,8 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 },
                 ui: { ...settings.ui, fontSize, theme, uiScale, bodyFont },
                 ai: {
+                    // 带上原有字段：设置是整体替换 ai 对象，漏了就会把偏好开关重置回默认
+                    ...settings.ai,
                     novelStyleGuide: novelGuide,
                     docsStyleGuide: docsGuide,
                     notesStyleGuide: notesGuide,
@@ -311,6 +410,47 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     </div>
 
                     <div>
+                        <label className="label" htmlFor="settings-context-window">
+                            上下文窗口
+                            {contextWindow > 0
+                                ? `（${formatWindowTokens(contextWindow)}，约能带 ${describeBudgetChars(contextWindow).toLocaleString()} 字）`
+                                : '（没填，按默认 6000 字）'}
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                id="settings-context-window"
+                                className="field"
+                                type="number"
+                                min={0}
+                                step={1000}
+                                placeholder="例如 1000000"
+                                value={contextWindow > 0 ? contextWindow : ''}
+                                onChange={(event) =>
+                                    setContextWindow(Math.max(0, Number(event.target.value) || 0))
+                                }
+                            />
+                            {CONTEXT_WINDOW_PRESETS.map((preset) => (
+                                <button
+                                    key={preset.value}
+                                    type="button"
+                                    className={`btn-outline shrink-0 ${
+                                        contextWindow === preset.value
+                                            ? 'border-jade-500 text-jade-400'
+                                            : ''
+                                    }`}
+                                    onClick={() => setContextWindow(preset.value)}
+                                >
+                                    {preset.label}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="mt-1.5 text-[13px] text-ink-600">
+                            填模型实际支持的上限。软件按它分配正文、细纲、剧情画板、前情提要和对话历史的预算；
+                            填大了但模型不支持，请求会直接报错。
+                        </p>
+                    </div>
+
+                    <div>
                         <label className="label" htmlFor="settings-api-key">
                             API Key {hasKey ? '（已保存，留空表示不改）' : '（还没填）'}
                         </label>
@@ -415,6 +555,50 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
             {tab === 'writing' && (
                 <div className="space-y-4">
+                    <div className="rounded-md border border-ink-800 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                            <label className="label mb-0" htmlFor="settings-recap">
+                                前情提要
+                                {recapText.trim().length > 0
+                                    ? `（${recapText.trim().length} 字）`
+                                    : '（还没写）'}
+                            </label>
+                            <div className="flex shrink-0 gap-2">
+                                <button
+                                    type="button"
+                                    className="btn-outline"
+                                    onClick={() => void handleRecapDraft()}
+                                    disabled={recapBusy}
+                                >
+                                    用画板整理
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-outline"
+                                    onClick={() => void handleRecapSave()}
+                                    disabled={recapBusy}
+                                >
+                                    保存
+                                </button>
+                            </div>
+                        </div>
+                        <textarea
+                            id="settings-recap"
+                            className="field h-36 font-mono text-[12px] leading-relaxed"
+                            value={recapText}
+                            onChange={(event) => setRecapText(event.target.value)}
+                            placeholder={
+                                '写长篇时这里记着前面几卷发生过什么。\n' +
+                                '点「用画板整理」可以从剧情画板自动生成，也可以手写。\n\n' +
+                                '## 第 1-20 章\n- 第 3 章【转折】雨夜救人：主角在渡口救下……'
+                            }
+                        />
+                        <p className="mt-1 text-[13px] text-ink-600">
+                            写正文时只带当前章之前的部分，存在《书名》/前情.md。
+                            不写这段，写到几十章以后 AI 会接不上前面的情节。
+                        </p>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="label" htmlFor="settings-word-target">
@@ -631,6 +815,10 @@ export default function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     </div>
                 </div>
             )}
+
+            {tab === 'preference' && <PreferenceSettings />}
+
+            {tab === 'skill' && <SkillSettings />}
 
             {tab === 'data' && (
                 <div className="space-y-4">

@@ -16,6 +16,8 @@ export type BodyFontId = UiSettings['bodyFont'];
 
 /** 可选主题 */
 export const THEMES: Array<{ id: ThemeId; name: string; hint: string; swatch: string }> = [
+    { id: 'mist', name: '清透', hint: '奶油白 + 薄荷青，默认主题', swatch: '#faf8f4' },
+    { id: 'dusk', name: '夜幕', hint: '深灰蓝 + 薄荷光，夜间潮感', swatch: '#0e1117' },
     { id: 'paper', name: '米黄纸', hint: '长时间写作不刺眼', swatch: '#fbf7ec' },
     { id: 'snow', name: '纯白', hint: '最亮，适合白天', swatch: '#ffffff' },
     { id: 'green', name: '护眼绿', hint: '低饱和绿底，眼睛更放松', swatch: '#e8f0e2' },

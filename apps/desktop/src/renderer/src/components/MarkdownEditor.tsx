@@ -101,30 +101,31 @@ const issueLineField = StateField.define<DecorationSet>({
     provide: (field) => EditorView.decorations.from(field),
 });
 
-/** 语法高亮配色：米黄纸底上的墨色，对比度按浅色背景重新算过 */
+/** 语法高亮配色：全部跟随主题变量，浅色/深色主题下都清晰可读；字号收敛让正文更像书稿 */
 const mojiangHighlight = HighlightStyle.define([
-    { tag: tags.heading1, color: '#1e1a12', fontSize: '1.45em', fontWeight: '700' },
-    { tag: tags.heading2, color: '#2e2618', fontSize: '1.22em', fontWeight: '600' },
-    { tag: tags.heading3, color: '#4a3e2a', fontSize: '1.08em', fontWeight: '600' },
-    { tag: tags.strong, color: '#1e1a12', fontWeight: '700' },
-    { tag: tags.emphasis, color: '#5a4e38', fontStyle: 'italic' },
-    { tag: tags.strikethrough, color: '#a2937a', textDecoration: 'line-through' },
-    { tag: tags.quote, color: '#6e6047', fontStyle: 'italic' },
-    { tag: tags.link, color: '#1f7a5c' },
-    { tag: tags.url, color: '#19614a' },
-    { tag: tags.monospace, color: '#a06818' },
-    { tag: tags.comment, color: '#a2937a' },
-    { tag: tags.list, color: '#6e6047' },
-    { tag: tags.contentSeparator, color: '#d6c8a4' },
+    { tag: tags.heading1, color: 'rgb(var(--ink-100))', fontSize: '1.32em', fontWeight: '700' },
+    { tag: tags.heading2, color: 'rgb(var(--ink-200))', fontSize: '1.16em', fontWeight: '600' },
+    { tag: tags.heading3, color: 'rgb(var(--ink-300))', fontSize: '1.05em', fontWeight: '600' },
+    { tag: tags.strong, color: 'rgb(var(--ink-100))', fontWeight: '600' },
+    { tag: tags.emphasis, fontStyle: 'italic' },
+    { tag: tags.strikethrough, color: 'rgb(var(--ink-500))', textDecoration: 'line-through' },
+    { tag: tags.quote, color: 'rgb(var(--ink-400))', fontStyle: 'italic' },
+    { tag: tags.link, color: 'rgb(var(--jade-500))' },
+    { tag: tags.url, color: 'rgb(var(--jade-600))' },
+    { tag: tags.monospace, color: 'rgb(var(--jade-600))' },
+    { tag: tags.comment, color: 'rgb(var(--ink-500))' },
+    { tag: tags.list, color: 'rgb(var(--ink-300))' },
+    { tag: tags.contentSeparator, color: 'rgb(var(--ink-700))' },
 ]);
 
 /** 编辑器基础主题，其余外观在 index.css 里 */
 const mojiangTheme = EditorView.theme(
     {
-        '&': { height: '100%', backgroundColor: 'transparent', color: '#2a2419' },
+        '&': { height: '100%', backgroundColor: 'transparent', color: 'rgb(var(--ink-100))' },
         '.cm-scroller': { overflow: 'auto' },
-        '.cm-gutters': { backgroundColor: 'transparent', border: 'none' },
+        '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'rgb(var(--gutter))' },
         '.cm-line': { paddingLeft: '2px' },
+        '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'rgb(var(--caret))' },
     },
     { dark: false },
 );
